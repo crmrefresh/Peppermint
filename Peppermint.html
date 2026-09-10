@@ -16,8 +16,9 @@
     --bg:#eef1f3;
     --match:#dbffda;
     --match-line:#8fd18c;
-    --unknown:#fff3b0;
-    --nodata:#ffd6a5;
+    --unknown:#fff8cf;
+    --nodata:#ffe9c4;
+    --nodataboth:#ffdddd;
     --excluded:#ededed;
     --sheet-pink:#ead1dc;
     --flag:#f6e4b8;
@@ -74,6 +75,12 @@
   .field .help{font-size:12.5px;color:var(--ink-soft);margin-top:6px}
   .warn{margin-top:8px;font-size:12.5px;background:#fff8e6;border:1px solid var(--flag-line);border-radius:5px;padding:7px 9px;display:none}
   .warn.on{display:block}
+  .variants{margin-top:14px;border:1px solid var(--line);border-radius:6px;padding:11px 13px;background:#fbfcfd}
+  .variants h4{margin:0 0 6px;font-size:13px;font-weight:600}
+  .varsame{font-size:12.5px;color:var(--ink-soft);margin-bottom:8px}
+  .varsame b{font-weight:600;color:var(--ink)}
+  .variants label{display:flex;gap:8px;align-items:baseline;font-size:13.5px;padding:3px 0}
+  .variants label span small{color:var(--ink-soft);font-size:12px;margin-left:4px}
   .opts{margin-top:16px;border-top:1px solid var(--line-soft);padding-top:14px}
   .opts h4{margin:0 0 10px;font-size:13px;font-weight:600}
   .optgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:9px 20px;margin-top:12px}
@@ -108,6 +115,8 @@
   tbody tr.matched td{background:var(--match)}
   tbody tr.sec-unknown td{background:var(--unknown)}
   tbody tr.sec-nodata td{background:var(--nodata)}
+  tbody tr.sec-nodataBoth td{background:var(--nodataboth)}
+  tbody tr.banner.sec-nodataBoth td{background:var(--nodataboth)}
   tbody tr.sec-excluded td{background:var(--excluded);color:var(--ink-soft)}
   tbody tr.banner.sec-excluded td{background:var(--excluded)}
   tbody tr.banner td{font-weight:600;white-space:normal;padding:10px 9px;border-top:1px solid var(--line)}
@@ -209,6 +218,11 @@
         <div class="help">Listing agent matches &rarr; the <b>seller</b> is the client. Selling agent matches &rarr; the <b>buyer</b> is the client. Both match &rarr; both sides.<br>
         The first and last name must match exactly. Capitalisation, accents, punctuation and middle initials are ignored &mdash; nothing else is, so Erik and Candace Stadelmann stay out. If the MLS spells the name more than one way, put each spelling on its own line.</div>
         <div class="warn" id="agentwarn"></div>
+        <div class="variants" id="variants" hidden>
+          <h4 id="varhd"></h4>
+          <div id="varsame" class="varsame"></div>
+          <div id="varlist"></div>
+        </div>
       </div>
     </div>
 
@@ -232,6 +246,7 @@
         <span><i class="sw" style="background:var(--flag)"></i>Something to eyeball before importing</span>
         <span><i class="sw" style="background:var(--unknown)"></i>No agent data &mdash; both parties listed, side marked Unknown</span>
         <span><i class="sw" style="background:var(--nodata)"></i>No client data &mdash; names to fill in by hand</span>
+        <span><i class="sw" style="background:var(--nodataboth)"></i>No agent and no client data</span>
         <span><i class="sw" style="background:var(--excluded)"></i>Historical reference only &mdash; not imported</span>
       </div>
       <div class="actions">
@@ -462,15 +477,32 @@ const CORE = (function () {
   }
 
   /* ---------- agent matching ---------- */
-  function agentTargets(text) {
-    return String(text || '')
-      .split(/[\n;]+/).map(t => tidy(t)).filter(Boolean)
+  function levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    if (!m || !n) return m || n;
+    let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) {
+      const cur = [i];
+      for (let j = 1; j <= n; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1,
+                          prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+      prev = cur;
+    }
+    return prev[n];
+  }
+
+  function agentTargets(text, aliases) {
+    return String(text || '').split(/[\n;]+/)
+      .concat(aliases || [])
+      .map(t => tidy(t)).filter(Boolean)
       .map(t => {
         let n = t;
         if (n.indexOf(',') > -1) { const [a, b] = n.split(','); n = tidy(b) + ' ' + tidy(a); }
         const toks = tidy(n).split(/\s+/).filter(w => !isSuffix(w) && !isInitial(w));
-        if (toks.length < 2) return { first: '', last: key(toks[0] || ''), partial: true, label: t };
-        return { first: key(toks[0]), last: key(toks[toks.length - 1]), partial: false, label: t };
+        const flat = key(toks.join(''));
+        if (toks.length < 2) return { first: '', last: key(toks[0] || ''), flat: '', partial: true, label: t };
+        return { first: key(toks[0]), last: key(toks[toks.length - 1]), flat: flat, partial: false, label: t };
       });
   }
 
@@ -484,8 +516,9 @@ const CORE = (function () {
         }
         const toks = tidy(t).split(/\s+/).filter(w => !isSuffix(w) && !isInitial(w));
         if (!toks.length) return null;
-        if (toks.length === 1) return { first: '', last: key(toks[0]) };
-        return { first: key(toks[0]), last: key(toks[toks.length - 1]) };
+        const flat = key(toks.join(''));
+        if (toks.length === 1) return { first: '', last: key(toks[0]), flat: flat };
+        return { first: key(toks[0]), last: key(toks[toks.length - 1]), flat: flat };
       }).filter(Boolean);
   }
 
@@ -497,9 +530,36 @@ const CORE = (function () {
       for (const t of targets) {
         if (t.partial) continue;              // a lone surname never matches
         if (c.first === t.first && c.last === t.last) return true;
+        // 'Christa-Stella Barone' and 'Christa Stella Barone' are one person
+        if (t.flat && c.flat && t.flat === c.flat) return true;
       }
     }
     return false;
+  }
+
+  // group the agent names in a file against the one that was typed
+  function agentVariants(names, agentText) {
+    const targets = agentTargets(agentText).filter(t => !t.partial);
+    const out = { same: [], similar: [] };
+    if (!targets.length) return out;
+    names.forEach(raw => {
+      const cands = agentCellNames(raw);
+      if (!cands.length) return;
+      const c = cands[0];
+      for (const t of targets) {
+        if (c.first === t.first && c.last === t.last) return;         // already exact
+        if (t.flat && c.flat && t.flat === c.flat) { out.same.push(raw); return; }
+        if (c.last === t.last && c.first && t.first) {
+          const d = levenshtein(c.first, t.first);
+          const short = c.first.length < t.first.length ? c.first : t.first;
+          const long = c.first.length < t.first.length ? t.first : c.first;
+          if (d <= 2 || (short.length >= 3 && long.indexOf(short) === 0)) {
+            out.similar.push(raw); return;
+          }
+        }
+      }
+    });
+    return out;
   }
 
   /* ---------- contacts index ---------- */
@@ -688,6 +748,7 @@ const CORE = (function () {
 
   const BANNER_UNKNOWN = 'The following listings did not provide agent data so both parties are listed for review.';
   const BANNER_NODATA  = 'The following listings did not provide client data. Please fill in names below.';
+  const BANNER_BOTH = 'The following listings did not provide agent or client data. Please fill in missing details below.';
   const BANNER_EXCLUDED = 'These rows are ONLY for historical reference and will NOT be included in your CRM import';
   const NO_NAME = 'Data Not Available';
 
@@ -750,22 +811,21 @@ const CORE = (function () {
           extra = Object.assign({}, buy);
           extra.excludeSeller = 'Exclude';
           extra.notes = (buy.notes || []).concat(
-            ['Purchase row just for your records. Will not be included in the import.']);
+            ['Purchase row just for your records. This home was later sold, so it will NOT be included in the import.']);
         } else {
-          // moved: the purchase they now live in is the record to import
+          // moved: the purchase they now live in carries both tags, and the
+          // sale of the old home stays a normal seller record at the top
           primary = Object.assign({}, buy);
           primary.role = 'Buyer, Seller';
           primary.closedDate = null;
           primary.tags = 'CRM: Home Anniversary, Buyer, Seller'
             + (buy.annivDate ? ', ' + buy.annivDate.getFullYear() : '');
           primary.notes = (buy.notes || []).concat(
-            ['Return client: bought, then sold a different property, so this is kept as a buyer record.']);
+            ['Return client: bought, then sold a different property.']);
 
-          // the sale keeps its own close date and the property they sold
           extra = Object.assign({}, rec);
-          extra.excludeSeller = 'Exclude';
           extra.notes = (rec.notes || []).concat(
-            ['Seller row just for your records. Will not be included in the import.']);
+            ['Sold this property after buying another. Also listed as a buyer.']);
         }
         shared(primary); shared(extra);
         out.push(primary); out.push(extra);
@@ -777,8 +837,8 @@ const CORE = (function () {
   }
 
   function build(mls, contactIndex, opts) {
-    const targets = agentTargets(opts.agent);
-    const main = [], unknown = [], nodata = [];
+    const targets = agentTargets(opts.agent, opts.agentAliases);
+    const main = [], unknown = [], nodata = [], nodataBoth = [], excluded = [];
     const review = { truncated: [] };
     const m = mls.map;
 
@@ -792,54 +852,51 @@ const CORE = (function () {
       const listMatch = targets.length && agentMatches(listing, targets);
       const sellMatch = targets.length && agentMatches(selling, targets);
 
-      // shared row shape
-      const base = (role, extra) => {
+      // dateSide decides which of the two date columns gets the closing date —
+      // never both, so a row reads as either a buyer or a seller record
+      const base = (role, dateSide, tagged) => {
         const notes = [];
         let attention = false;
         if (addr.note) { notes.push('Address is hidden in the MLS.'); attention = true; }
         if (!date) { notes.push('No closing date in the MLS.'); attention = true; }
-        const known = role === 'Buyer' || role === 'Seller';
-        return Object.assign({
+        return {
           exclude: '', sinceSold: '', excludeSeller: '',
           first: '', last: '',
-          // side unknown: the one closing date goes in both columns so the
-          // reviewer keeps whichever one applies
-          annivDate: (role === 'Buyer' || !known) ? date : null,
-          closedDate: (role === 'Seller' || !known) ? date : null,
+          annivDate: dateSide === 'buyer' ? date : null,
+          closedDate: dateSide === 'seller' ? date : null,
           role: role,
           price: price,
           line1: addr.line1, line2: addr.line2, city: addr.city, state: addr.state, zip: addr.zip,
           phone: '', email: '',
           groups: 'Past Clients',
-          tags: known
-            ? (role === 'Buyer' ? 'CRM: Home Anniversary, Buyer' : 'CRM: Closed Date, Seller')
+          tags: tagged
+            ? (dateSide === 'buyer' ? 'CRM: Home Anniversary, Buyer' : 'CRM: Closed Date, Seller')
               + (date ? ', ' + date.getFullYear() : '')
             : '',
           matched: false, attention: attention, kind: 'person',
           notes: notes, source: '', srcLine: ri + 2
-        }, extra || {});
+        };
       };
 
-      // one parsed name -> one row, with the contact lookup applied
-      const personRow = (p, role, sourceCell, bucket) => {
+      const personRow = (p, role, dateSide, tagged, sourceCell, bucket) => {
         if (p.kind === 'entity' && !opts.exportEntities) return;
-        const row = base(role);
+        const row = base(role, dateSide, tagged);
         let found = lookupContact(p, contactIndex);
         row.first = p.first; row.last = p.last; row.kind = p.kind;
         row.source = sourceCell;
 
         // a trust named after its owner: pull the person out of the contacts file
         if (p.kind === 'entity' && !found && opts.resolveTrusts) {
-          const r = resolveEntity(p.first, contactIndex);
-          if (r && r.hit) {
-            row.first = r.hit.first; row.last = r.hit.last; row.kind = 'person';
+          const rr = resolveEntity(p.first, contactIndex);
+          if (rr && rr.hit) {
+            row.first = rr.hit.first; row.last = rr.hit.last; row.kind = 'person';
             row.notes.push('Name taken from the trust "' + p.first + '". Please verify.');
             row.attention = true;
-            found = { hit: r.hit, count: 1, hasInfo: !!(r.hit.email || r.hit.phone) };
-          } else if (r) {
-            row.notes.push(r.named
-              ? 'Trust names ' + r.named + ', but no contact by that name.'
-              : r.count + ' contacts share the surname in this trust name.');
+            found = { hit: rr.hit, count: 1, hasInfo: !!(rr.hit.email || rr.hit.phone) };
+          } else if (rr) {
+            row.notes.push(rr.named
+              ? 'Trust names ' + rr.named + ', but no contact by that name.'
+              : rr.count + ' contacts share the surname in this trust name.');
             row.attention = true;
           }
         }
@@ -859,61 +916,63 @@ const CORE = (function () {
         bucket.push(row);
       };
 
-      const emit = (cell, role, bucket) => {
+      const emit = (cell, role, dateSide, tagged, bucket) => {
         let n = 0;
         parseNameCell(cell, opts).forEach(p => {
           if (p.skip || p.kind === 'fragment') {
             review.truncated.push({ line: ri + 2, address: addrRaw, role: role, raw: p.raw, source: cell });
             return;
           }
-          personRow(p, role, cell, bucket);
+          personRow(p, role, dateSide, tagged, cell, bucket);
           n++;
         });
         return n;
       };
 
-      // 1. our agent is on the deal -> the other party is the client
+      const buyerCell = tidy(r[m.buyer]);
+      const sellerCell = tidy(r[m.seller]);
+
+      // 1. our agent is on the deal, so the other party is the client
       if (listMatch || sellMatch) {
         const sides = [];
-        if (sellMatch) sides.push({ role: 'Buyer', cell: tidy(r[m.buyer]) });
-        if (listMatch) sides.push({ role: 'Seller', cell: tidy(r[m.seller]) });
-        const missing = [];
-        sides.forEach(side => {
-          const n = side.cell ? emit(side.cell, side.role, main) : 0;
-          if (!n) missing.push(side.role);
+        if (sellMatch) sides.push({ role: 'Buyer', side: 'buyer', cell: buyerCell });
+        if (listMatch) sides.push({ role: 'Seller', side: 'seller', cell: sellerCell });
+        sides.forEach(sd => {
+          const n = sd.cell ? emit(sd.cell, sd.role, sd.side, true, main) : 0;
+          if (!n) {
+            const row = base(sd.role, sd.side, true);
+            row.first = NO_NAME; row.noName = true; row.attention = true;
+            row.notes.push('No ' + sd.role.toLowerCase() + ' name in the MLS. Please fill in.');
+            nodata.push(row);
+          }
         });
-        // no usable name on our side of the deal -> one row to fill in by hand
-        if (missing.length) {
-          const role = missing.length > 1 ? 'Unknown' : missing[0];
-          const row = base(role);
-          row.first = NO_NAME; row.noName = true; row.attention = true;
-          row.notes.push('No ' + missing.join(' or ').toLowerCase()
-            + ' name in the MLS. Please fill in.');
-          nodata.push(row);
+        return;
+      }
+
+      // 2. neither agent matches, but we do have names: list both parties
+      const agentNote = 'No agent match (listing: ' + (listing || 'blank') + ' / selling: '
+        + (selling || 'blank') + ').';
+      if (buyerCell || sellerCell) {
+        const before = unknown.length;
+        if (buyerCell) emit(buyerCell, 'Buyer', 'buyer', true, unknown);
+        if (sellerCell) emit(sellerCell, 'Seller', 'seller', true, unknown);
+        for (let i = before; i < unknown.length; i++) {
+          unknown[i].notes.push(agentNote + ' Confirm which party is the client.');
         }
         return;
       }
 
-      // 2. neither agent matches — whether the fields name someone else or are
-      //    empty, we cannot tell which side is the client, so list both
-      const agentNote = 'No agent match (listing: ' + (listing || 'blank') + ' / selling: '
-        + (selling || 'blank') + '). Confirm which party is the client.';
-      const before = unknown.length;
-      if (tidy(r[m.buyer])) emit(tidy(r[m.buyer]), 'Unknown', unknown);
-      if (tidy(r[m.seller])) emit(tidy(r[m.seller]), 'Unknown', unknown);
-      if (unknown.length === before) {
-        const row = base('Unknown');
+      // 3. no agent and no names: one row per side so both can be filled in
+      [['Buyer', 'buyer'], ['Seller', 'seller']].forEach(([role, side]) => {
+        const row = base(role, side, true);
         row.first = NO_NAME; row.noName = true; row.attention = true;
-        row.notes.push('No client names in the MLS. Please fill in.');
+        row.notes.push('No agent or client name in the MLS. Please fill in the ' + role.toLowerCase() + '.');
         row.notes.push(agentNote);
-        nodata.push(row);
-      } else {
-        for (let i = before; i < unknown.length; i++) unknown[i].notes.push(agentNote);
-      }
+        nodataBoth.push(row);
+      });
     });
 
     let merges = 0;
-    const excluded = [];
     if (opts.mergeReturns) {
       const m1 = mergeReturnClients(main);
       main.length = 0;
@@ -927,15 +986,17 @@ const CORE = (function () {
       if (ta !== tb) return ta - tb;
       return (a.last + a.first).localeCompare(b.last + b.first);
     };
-    main.sort(byDate); unknown.sort(byDate); nodata.sort(byDate); excluded.sort(byDate);
+    main.sort(byDate); unknown.sort(byDate); nodata.sort(byDate);
+    nodataBoth.sort(byDate); excluded.sort(byDate);
 
     const sections = [{ id: 'main', rows: main }];
     if (unknown.length) sections.push({ id: 'unknown', banner: BANNER_UNKNOWN, rows: unknown });
     if (nodata.length) sections.push({ id: 'nodata', banner: BANNER_NODATA, rows: nodata });
+    if (nodataBoth.length) sections.push({ id: 'nodataBoth', banner: BANNER_BOTH, rows: nodataBoth });
     if (excluded.length) sections.push({ id: 'excluded', banner: BANNER_EXCLUDED, rows: excluded });
 
-    return { sections, main, unknown, nodata, excluded, merges,
-             rows: main.concat(unknown, nodata, excluded), review, headers: HEADERS };
+    return { sections, main, unknown, nodata, nodataBoth, excluded, merges,
+             rows: main.concat(unknown, nodata, nodataBoth, excluded), review, headers: HEADERS };
   }
 
   function rowToArray(r) {
@@ -954,8 +1015,8 @@ const CORE = (function () {
   return { parseCSV, parseNameCell, parsePerson, looksLikeEntity, agentMatches, agentTargets,
            buildContactIndex, lookupContact, parseAddress, parseDate, parseMoney, fmtDate,
            build, rowToArray, titleCase, key, HEADERS, pickColumns, hasAgentName,
-           mergeReturnClients, resolveEntity, addrKey,
-           BANNER_UNKNOWN, BANNER_NODATA, BANNER_EXCLUDED, NO_NAME };
+           mergeReturnClients, resolveEntity, addrKey, agentVariants, levenshtein,
+           BANNER_UNKNOWN, BANNER_NODATA, BANNER_BOTH, BANNER_EXCLUDED, NO_NAME };
 })();
 /* ============================= CORE LOGIC END ============================= */
 
@@ -1084,7 +1145,7 @@ const CORE = (function () {
         state[kind] = { name: file.name, headers, rows, map };
         info.innerHTML = `<b>${file.name}</b> — ${rows.length.toLocaleString()} rows, ${headers.length} columns`;
         drop.classList.add('ready');
-        if (kind === 'mls') fillAgentList();
+        if (kind === 'mls') { fillAgentList(); renderVariants(); }
         renderMaps();
         checkReady();
       } catch (e) {
@@ -1110,12 +1171,52 @@ const CORE = (function () {
     if (!$('agent').value && sorted.length && sorted[0][1] >= 3) {
       $('agent').value = sorted[0][0];
       checkAgent();
+      renderVariants();
     }
+  }
+
+  // spellings the person has ticked as the same agent
+  function aliases() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll('#varlist input:checked')).map(i => i.value);
+  }
+
+  function renderVariants() {
+    const box = $('variants');
+    if (!state.mls || !$('agent').value.trim()) { box.hidden = true; return; }
+    const m = state.mls.map;
+    const names = [];
+    state.mls.rows.forEach(r => {
+      [r[m.listingAgent], r[m.sellingAgent]].forEach(v => {
+        const t = String(v == null ? '' : v).trim();
+        if (t && names.indexOf(t) < 0 && t.replace(/[^A-Za-z]/g, '').length >= 3) names.push(t);
+      });
+    });
+    const v = CORE.agentVariants(names, $('agent').value);
+    if (!v.same.length && !v.similar.length) { box.hidden = true; return; }
+
+    box.hidden = false;
+    $('varhd').textContent = 'Other spellings of this name in the file';
+    $('varsame').innerHTML = v.same.length
+      ? 'Treated as the same agent automatically, since only punctuation or spacing differs: <b>'
+        + v.same.map(esc).join('</b>, <b>') + '</b>'
+      : '';
+
+    const ticked = aliases();
+    $('varlist').innerHTML = v.similar.map(n => `
+      <label><input type="checkbox" value="${esc(n)}"${ticked.indexOf(n) > -1 ? ' checked' : ''}>
+      <span>${esc(n)}<small>count as the same agent</small></span></label>`).join('')
+      || '<div class="varsame">No other close spellings found.</div>';
+
+    $('varlist').querySelectorAll('input').forEach(i => i.onchange = () => {
+      if (state.result) run(); else checkReady();
+    });
   }
 
   function opts() {
     return {
       agent: $('agent').value,
+      agentAliases: aliases(),
       splitPipe: $('o-pipe').checked,
       splitAmp: $('o-amp').checked,
       inheritLast: $('o-inherit').checked,
@@ -1153,7 +1254,7 @@ const CORE = (function () {
     else msg = 'Ready.';
     $('runmsg').textContent = msg;
   }
-  $('agent').addEventListener('input', () => { checkAgent(); checkReady(); });
+  $('agent').addEventListener('input', () => { checkAgent(); renderVariants(); checkReady(); });
   ['o-pipe','o-amp','o-inherit','o-mid','o-entity','o-trunc','o-case','o-keepentity',
    'o-firstonly','o-trust','o-return']
     .forEach(id => $(id).addEventListener('change', () => { if (state.result) run(); }));
@@ -1177,7 +1278,7 @@ const CORE = (function () {
 
   /* ---- render ---- */
   function render() {
-    const { sections, main, unknown, nodata, excluded, review } = state.result;
+    const { sections, main, unknown, nodata, nodataBoth, excluded, review } = state.result;
     $('noresults').hidden = true;
     $('results').hidden = false;
 
@@ -1186,7 +1287,7 @@ const CORE = (function () {
       ['rows in the log', state.result.rows.length, false],
       ['with a contact match', matched, true],
       ['no agent match — both parties listed', unknown.length, false],
-      ['no client data — fill in by hand', nodata.length, false],
+      ['no client data — fill in by hand', nodata.length + nodataBoth.length, false],
       ['return clients merged', state.result.merges, false],
       ['historical only — not imported', excluded.length, false],
       ['names the MLS cut off', state.result.rows.filter(r =>
@@ -1203,6 +1304,7 @@ const CORE = (function () {
       flagged: all.filter(r => r.attention).length,
       unknown: unknown.length,
       nodata: nodata.length,
+      nodataBoth: nodataBoth.length,
       excluded: excluded.length
     };
     $('chips').innerHTML = [
@@ -1218,7 +1320,8 @@ const CORE = (function () {
       state.filter === 'unmatched' ? (sec === 'main' && !r.matched) :
       state.filter === 'flagged' ? r.attention :
       state.filter === 'unknown' ? sec === 'unknown' :
-      state.filter === 'excluded' ? sec === 'excluded' : sec === 'nodata';
+      state.filter === 'excluded' ? sec === 'excluded' :
+      state.filter === 'nodataBoth' ? sec === 'nodataBoth' : sec === 'nodata';
 
     const t = $('out');
     const cols = CORE.HEADERS.length + 1;
@@ -1274,7 +1377,8 @@ const CORE = (function () {
     return (a + ' - Past Clients').slice(0, 31);
   }
 
-  const FILL = { match: 'FFDBFFDA', unknown: 'FFFFF3B0', nodata: 'FFFFD6A5', excluded: 'FFEDEDED' };
+  const FILL = { match: 'FFDBFFDA', unknown: 'FFFFF8CF', nodata: 'FFFFE9C4',
+                 nodataBoth: 'FFFFDDDD', excluded: 'FFEDEDED' };
   const FONT = { name: 'Arial', size: 10 };
   // fills cover the sheet's own gridlines, so the grid is drawn on every cell
   const GRID = { style: 'thin', color: { argb: 'FFD9D9D9' } };
