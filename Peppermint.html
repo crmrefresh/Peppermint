@@ -23,6 +23,7 @@
     --flag:#f6e4b8;
     --flag-line:#d9ad4a;
     --btn:#1b2a38;
+    --blue:#1c53e5;
   }
   *{box-sizing:border-box}
   html{-webkit-text-size-adjust:100%}
@@ -82,6 +83,8 @@
 
   .actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:18px}
   button{font:inherit;font-size:14px;border-radius:6px;border:1px solid var(--btn);background:var(--btn);color:#fff;padding:9px 15px;cursor:pointer}
+  button.primary{background:var(--blue);border-color:var(--blue);font-weight:550}
+  button.primary:hover{background:#1746c6;border-color:#1746c6}
   button.ghost{background:#fff;color:var(--ink);border-color:var(--line)}
   button.ghost:hover{border-color:var(--ink)}
   button:disabled{opacity:.42;cursor:not-allowed}
@@ -232,8 +235,8 @@
         <span><i class="sw" style="background:var(--excluded)"></i>Historical reference only &mdash; not imported</span>
       </div>
       <div class="actions">
-        <button id="cp-body">Copy the whole sheet &mdash; paste at A1</button>
-        <button id="dl-xlsx" class="ghost">Download .xlsx</button>
+        <button id="dl-xlsx" class="primary">Download .xlsx</button>
+        <button id="cp-body" class="ghost">Copy the whole sheet &mdash; paste at A1</button>
         <button id="dl-csv" class="ghost">Download .csv</button>
         <span class="msg" id="expmsg"></span>
       </div>
