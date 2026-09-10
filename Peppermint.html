@@ -224,7 +224,7 @@
         <span><i class="sw" style="background:var(--excluded)"></i>Historical reference only &mdash; not imported</span>
       </div>
       <div class="actions">
-        <button id="cp-body">Copy rows for Google Sheets &mdash; paste at C3</button>
+        <button id="cp-body">Copy the whole sheet &mdash; paste at A1</button>
         <button id="dl-xlsx" class="ghost">Download .xlsx</button>
         <button id="dl-csv" class="ghost">Download .csv</button>
         <span class="msg" id="expmsg"></span>
@@ -233,11 +233,12 @@
       <details class="sheets" id="sheets">
         <summary>Getting this into Google Sheets with the template formatting intact</summary>
         <div class="sheetbd">
-          <p><b>The way that keeps everything.</b> In Drive, make a copy of <i>TEMPLATE - Past Client Log</i>, rename it for the agent, then paste the copied rows into cell <b>C3</b>. Starting at C leaves the Exclude and Since Sold checkboxes, the banner and the header formatting untouched &mdash; you are only filling in First Name through Tags.</p>
-          <p><b>Bringing the green with it.</b> A values-only paste carries no colour, so add it as a rule once per sheet: select <b>A3:Q</b>, then Format &rsaquo; Conditional formatting &rsaquo; Custom formula is, and fill with <span class="hex"><i class="sw" style="background:var(--match)"></i>#dbffda</span>.</p>
-          <div class="ruleline"><code id="rule">=OR($N3&lt;&gt;"",$O3&lt;&gt;"")</code><button id="cp-rule" class="ghost">Copy the rule</button></div>
+          <p><b>The .xlsx is the main route.</b> Download it, drop it into Drive and open it with Sheets. Everything below is the backup for when you would rather paste.</p>
+          <p><b>Pasting instead.</b> The sheet now carries a Note column at <b>G</b> and the exclusion column at <b>S</b>, so it no longer lines up with the template column for column. Copy the whole sheet and paste it into <b>A1</b> of a blank tab rather than into the template at C3 &mdash; the header row comes with it.</p>
+          <p><b>Bringing the green with it.</b> A values-only paste carries no colour, so add it as a rule once per sheet: select <b>A3:S</b>, then Format &rsaquo; Conditional formatting &rsaquo; Custom formula is, and fill with <span class="hex"><i class="sw" style="background:var(--match)"></i>#dbffda</span>.</p>
+          <div class="ruleline"><code id="rule">=OR($O3&lt;&gt;"",$P3&lt;&gt;"")</code><button id="cp-rule" class="ghost">Copy the rule</button></div>
           <p class="fineprint">The rule greens any row that came back with a phone or an email, which is nearly all of them. A handful of rows match a contact who has neither &mdash; those stay white under the rule, and the <b>Needs an eyeball</b> filter above lists them.</p>
-          <p><b>The two review blocks at the bottom.</b> Deals with no agent data are yellow, with both parties listed and the Buyer / Seller column set to Unknown &mdash; the closing date sits in both date columns so you keep whichever applies. Deals with no client name are orange, one row each, with <i>Data Not Available</i> in First Name. Each block has its own heading row. A values-only paste brings the text but not the merge or the colour, so the .xlsx below is the better route when these blocks are present.</p>
+          <p><b>The review blocks at the bottom.</b> Deals with no agent data are yellow, with both parties listed and the Buyer / Seller column set to Unknown &mdash; the closing date sits in both date columns so you keep whichever applies. Deals with no client name are orange, one row each, with <i>Data Not Available</i> in First Name. Each block has its own heading row. A values-only paste brings the text but not the merge or the colour, so the .xlsx below is the better route when these blocks are present.</p>
           <p><b>The grey block.</b> The other half of each return client &mdash; the home they sold, or the purchase they later resold &mdash; sits in a grey block at the very bottom under a heading saying it is historical reference only. The client can read the full history without those rows sitting among the ones they are approving.</p>
           <p><b>Or skip the rule.</b> Download the .xlsx and drop it into Drive, then open it with Sheets. The banner, header colour, column widths, frozen header, date and dollar formats and the real green fills all survive the import. The two checkbox columns arrive as plain TRUE/FALSE &mdash; select A3:B and use Insert &rsaquo; Checkbox to turn them back into tick boxes.</p>
         </div>
@@ -1360,8 +1361,9 @@ const CORE = (function () {
     if (!state.result) return;
     const q = v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
     const lines = [CORE.HEADERS.map(q).join(',')];
-    state.result.sections.forEach(sec => {
+    state.result.sections.forEach((sec, si) => {
       if (!sec.rows.length) return;
+      if (si > 0) lines.push('');
       if (sec.banner) lines.push(q(sec.banner));
       sec.rows.forEach(r => lines.push(CORE.rowToArray(r).map(q).join(',')));
     });
@@ -1372,27 +1374,31 @@ const CORE = (function () {
 
   $('cp-body').addEventListener('click', async () => {
     if (!state.result) return;
-    const lines = [];
-    state.result.sections.forEach(sec => {
+    // the layout no longer matches the template column for column, so this
+    // copies the whole grid — headers included — for pasting into cell A1
+    const lines = [CORE.HEADERS.join('\t')];
+    state.result.sections.forEach((sec, si) => {
       if (!sec.rows.length) return;
-      if (sec.banner) lines.push(sec.banner);              // lands in column C
-      sec.rows.forEach(r => lines.push(CORE.rowToArray(r).slice(2).join('\t')));
+      if (si > 0) lines.push('');                          // the blank spacer row
+      if (sec.banner) lines.push(sec.banner);              // lands in column A
+      sec.rows.forEach(r => lines.push(CORE.rowToArray(r).join('\t')));
     });
-
     const tsv = lines.join('\n');
+    const done = n => $('expmsg').textContent = n + ' rows copied — paste into cell A1. '
+      + 'Colours and the merged headings do not travel with a paste; the .xlsx keeps them.';
     try {
       await navigator.clipboard.writeText(tsv);
-      $('expmsg').textContent = state.result.rows.length + ' rows copied — paste into cell C3. Pasted headings sit in column C; merge and colour them by hand, or use the .xlsx.';
+      done(state.result.rows.length);
     } catch (e) {
       const ta = document.createElement('textarea');
       ta.value = tsv; document.body.appendChild(ta); ta.select();
       document.execCommand('copy'); ta.remove();
-      $('expmsg').textContent = state.result.rows.length + ' rows copied — paste into cell C3.';
+      done(state.result.rows.length);
     }
   });
 
   $('cp-rule').addEventListener('click', async () => {
-    const rule = '=OR($N3<>"",$O3<>"")';
+    const rule = '=OR($O3<>"",$P3<>"")';
     try { await navigator.clipboard.writeText(rule); }
     catch (e) {
       const ta = document.createElement('textarea');
