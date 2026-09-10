@@ -175,6 +175,9 @@
         <label class="opt"><input type="checkbox" id="o-trunc" checked><span>Skip segments cut off by the MLS 50-character limit<small>&hellip; |renault Fa &rarr; listed for review, not exported</small></span></label>
         <label class="opt"><input type="checkbox" id="o-case" checked><span>Fix capitalisation<small>mcinally loftus &rarr; McInally Loftus</small></span></label>
         <label class="opt"><input type="checkbox" id="o-keepentity" checked><span>Export trusts and companies as rows<small>Uncheck to keep people only</small></span></label>
+        <label class="opt"><input type="checkbox" id="o-firstonly" checked><span>First given name only<small>Emily Rosamond Walper &rarr; Emily Walper</small></span></label>
+        <label class="opt"><input type="checkbox" id="o-trust" checked><span>Look up the person behind a trust name<small>The Etter 1999 Revocable Living Tru &rarr; Sally Etter</small></span></label>
+        <label class="opt"><input type="checkbox" id="o-return" checked><span>Merge return clients<small>Bought then sold &rarr; one row tagged Buyer, Seller</small></span></label>
       </div>
     </details>
   </div>
@@ -308,7 +311,6 @@ const CORE = (function () {
         if (!part) return part;
         let out = part.charAt(0).toUpperCase() + part.slice(1);
         if (/^Mc[a-z]{2,}/.test(out)) out = 'Mc' + out.charAt(2).toUpperCase() + out.slice(3);
-        else if (/^Mac[a-z]{3,}/.test(out)) out = 'Mac' + out.charAt(3).toUpperCase() + out.slice(4);
         return out;
       }).join('');
     }).join(' ');
@@ -346,6 +348,10 @@ const CORE = (function () {
       if (meaningful.length <= 1 && inheritedLast) {
         givenRaw = meaningful.join(' ') || toks.join(' ');
         lastRaw = inheritedLast;
+      } else if (meaningful.length >= 2 && isInitial(toks[toks.length - 1])) {
+        // the MLS also writes surname first with no comma: "West Jason E"
+        lastRaw = meaningful[0];
+        givenRaw = meaningful.slice(1).join(' ');
       } else {
         // trailing suffix tokens sit after the surname: Dever David H Iv
         let end = toks.length - 1;
@@ -359,6 +365,7 @@ const CORE = (function () {
     let given = tidy(givenRaw).split(/\s+/).filter(Boolean)
       .filter(t => !isSuffix(t))
       .filter(t => !(opts.dropMiddles && isInitial(t)));
+    if (opts.firstGivenOnly && given.length > 1) given = [given[0]];
     let last = tidy(lastRaw).split(/\s+/).filter(Boolean).filter(t => !isSuffix(t)).join(' ');
 
     if (!given.length && last) { given = [last]; last = inheritedLast || ''; }
@@ -500,6 +507,7 @@ const CORE = (function () {
       if (!idx.has(k)) idx.set(k, []);
       idx.get(k).push(rec);
     };
+    const byLast = new Map();
     rows.forEach((r, i) => {
       const f = tidy(r[map.first]).replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9.'’-]+$/g, '');
       const l = tidy(r[map.last]).replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9.'’-]+$/g, '');
@@ -513,8 +521,13 @@ const CORE = (function () {
       add(key(f) + '|' + key(l), rec);         // person
       add(key(f + l) + '|', rec);              // entity: whole string vs first+last
       if (!l) add(key(f) + '|', rec);
+      if (l && f) {
+        const lk = key(l);
+        if (!byLast.has(lk)) byLast.set(lk, []);
+        byLast.get(lk).push(rec);
+      }
     });
-    return { idx, emailCols, phoneCols };
+    return { idx, byLast, emailCols, phoneCols };
   }
 
   function lookupContact(person, index) {
@@ -528,6 +541,39 @@ const CORE = (function () {
       const withBoth = hits.find(h => h.email && h.phone);
       const withAny = hits.find(h => h.email || h.phone);
       return { hit: withBoth || withAny || hits[0], count: hits.length, hasInfo: !!withAny };
+    }
+    return null;
+  }
+
+  // 'The Etter 1999 Revocable Living Tru' -> Sally Etter, but only when exactly
+  // one contact carries that surname
+  function resolveEntity(name, index) {
+    if (!index || !index.byLast) return null;
+    const STOP = ['the','and','of','for','its','to','or','an','a','as','by'];
+    const words = String(name).split(/[^A-Za-z']+/)
+      .filter(w => w.length >= 3 && !ENTITY_WORDS.has(w.toLowerCase())
+                                 && STOP.indexOf(w.toLowerCase()) < 0);
+    for (const t of words) {
+      const hits = index.byLast.get(key(t));
+      if (!hits || !hits.length) continue;
+
+      const people = [];
+      hits.forEach(h => {
+        if (!people.some(x => key(x.first) === key(h.first))) people.push(h);
+      });
+
+      // any other name-shaped word in the trust is probably the owner's first
+      // name, so the contact has to match it — 'The Richard D Mathis Trust'
+      // must not resolve to a different Mathis
+      const others = words.filter(w => key(w) !== key(t));
+      if (others.length) {
+        const hit = people.filter(pp => others.some(o => key(o) === key(pp.first)));
+        if (hit.length === 1) return { hit: hit[0], token: t, count: 1 };
+        return { hit: null, token: t, count: people.length, named: others.join(' ') };
+      }
+
+      if (people.length === 1) return { hit: people[0], token: t, count: 1 };
+      return { hit: null, token: t, count: people.length };
     }
     return null;
   }
@@ -595,7 +641,8 @@ const CORE = (function () {
   /* ---------- the build ---------- */
   const HEADERS = ['Exclude?','Since Sold?','First Name','Last Name','Home Anniversary Date (Buyers)',
     'Closed Date (Sellers)','Buyer / Seller','Sale Price','Home Address Line 1','Home Address Line 2',
-    'Home Address City','Home Address State','Home Address Zip Code','Phone','Email','Groups','Tags'];
+    'Home Address City','Home Address State','Home Address Zip Code','Phone','Email','Groups','Tags',
+    'CRM: Exclude Seller from Import'];
 
   const BANNER_UNKNOWN = 'The following listings did not provide agent data so both parties are listed for review.';
   const BANNER_NODATA  = 'The following listings did not provide client data. Please fill in names below.';
@@ -607,10 +654,85 @@ const CORE = (function () {
     return tidy(v).replace(/[^A-Za-z]/g, '').length >= 3;
   }
 
+  function addrKey(r) {
+    if (!r.line1) return '';
+    return key(r.line1) + '|' + key(r.city) + '|' + key(r.zip);
+  }
+
+  // Buyer then Seller for the same person: same property -> one seller record,
+  // different property -> one buyer record. Both keep the Buyer + Seller tags.
+  function mergeReturnClients(rows) {
+    const groups = new Map();
+    rows.forEach(r => {
+      const k = r.kind + '|' + key(r.first) + '|' + key(r.last);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(r);
+    });
+
+    const out = [], merges = [];
+    groups.forEach(recs => {
+      if (recs.length < 2) { out.push.apply(out, recs); return; }
+      const when = r => { const d = r.annivDate || r.closedDate; return d ? d.getTime() : 0; };
+      recs.sort((a, b) => when(a) - when(b));
+
+      const pending = [];
+      recs.forEach(rec => {
+        if (rec.role === 'Buyer') { pending.push(rec); return; }
+        if (rec.role !== 'Seller' || !pending.length) { out.push(rec); return; }
+
+        let i = addrKey(rec) ? pending.findIndex(b => addrKey(b) === addrKey(rec)) : -1;
+        const same = i > -1;
+        if (!same) i = pending.length - 1;                 // otherwise the most recent buy
+        const buy = pending.splice(i, 1)[0];
+
+        const phone = buy.phone || rec.phone;
+        const email = buy.email || rec.email;
+        const matched = buy.matched || rec.matched;
+        const shared = r2 => { r2.phone = phone; r2.email = email; r2.matched = matched; r2.attention = true; };
+
+        // both deals stay on the sheet; one is the record to import and the
+        // other is marked so it can be filtered out
+        let primary, extra;
+        if (same) {
+          // true resale of the same property: the sale is the record, no address
+          primary = Object.assign({}, rec);
+          primary.role = 'Buyer, Seller';
+          primary.annivDate = null;
+          primary.line1 = ''; primary.line2 = ''; primary.city = ''; primary.state = ''; primary.zip = '';
+          primary.tags = 'CRM: Closed Date, Buyer, Seller'
+            + (rec.closedDate ? ', ' + rec.closedDate.getFullYear() : '');
+          primary.notes = (rec.notes || []).concat(['return client — resold the same property']);
+
+          extra = Object.assign({}, buy);
+          extra.excludeSeller = 'Exclude';
+          extra.notes = (buy.notes || []).concat(['the purchase they later resold']);
+        } else {
+          // moved: the purchase they now live in is the record to import
+          primary = Object.assign({}, buy);
+          primary.role = 'Buyer, Seller';
+          primary.closedDate = null;
+          primary.tags = 'CRM: Home Anniversary, Buyer, Seller'
+            + (buy.annivDate ? ', ' + buy.annivDate.getFullYear() : '');
+          primary.notes = (buy.notes || []).concat(['return client — bought, then sold a different property']);
+
+          // the sale keeps its own close date and the property they sold
+          extra = Object.assign({}, rec);
+          extra.excludeSeller = 'Exclude';
+          extra.notes = (rec.notes || []).concat(['the property they sold after moving']);
+        }
+        shared(primary); shared(extra);
+        out.push(primary); out.push(extra);
+        merges.push(primary);
+      });
+      out.push.apply(out, pending);
+    });
+    return { rows: out, merges: merges.length };
+  }
+
   function build(mls, contactIndex, opts) {
     const targets = agentTargets(opts.agent);
     const main = [], unknown = [], nodata = [];
-    const review = { noAgent: [], truncated: [] };
+    const review = { truncated: [] };
     const m = mls.map;
 
     mls.rows.forEach((r, ri) => {
@@ -631,7 +753,7 @@ const CORE = (function () {
         if (!date) { notes.push('no date'); attention = true; }
         const known = role === 'Buyer' || role === 'Seller';
         return Object.assign({
-          exclude: false, sinceSold: false,
+          exclude: '', sinceSold: '', excludeSeller: '',
           first: '', last: '',
           // side unknown: the one closing date goes in both columns so the
           // reviewer keeps whichever one applies
@@ -655,11 +777,27 @@ const CORE = (function () {
       const personRow = (p, role, sourceCell, bucket) => {
         if (p.kind === 'entity' && !opts.exportEntities) return;
         const row = base(role);
-        const found = lookupContact(p, contactIndex);
+        let found = lookupContact(p, contactIndex);
         row.first = p.first; row.last = p.last; row.kind = p.kind;
         row.source = sourceCell;
+
+        // a trust named after its owner: pull the person out of the contacts file
+        if (p.kind === 'entity' && !found && opts.resolveTrusts) {
+          const r = resolveEntity(p.first, contactIndex);
+          if (r && r.hit) {
+            row.first = r.hit.first; row.last = r.hit.last; row.kind = 'person';
+            row.notes.push('name taken from "' + p.first + '"');
+            row.attention = true;
+            found = { hit: r.hit, count: 1, hasInfo: !!(r.hit.email || r.hit.phone) };
+          } else if (r) {
+            row.notes.push(r.named
+              ? 'trust names ' + r.named + ', no contact by that name'
+              : r.count + ' contacts share the surname in this trust name');
+            row.attention = true;
+          }
+        }
         if (found) { row.phone = found.hit.phone; row.email = found.hit.email; row.matched = true; }
-        if (p.kind === 'entity') row.notes.push('trust / company');
+        if (row.kind === 'entity') row.notes.push('trust / company');
         if (p.truncated || p.stub) { row.notes.push('name may be cut off'); row.attention = true; }
         if (found && found.count > 1) { row.notes.push(found.count + ' contacts share this name'); row.attention = true; }
         if (found && !found.hasInfo) { row.notes.push('contact has no phone or email'); row.attention = true; }
@@ -700,24 +838,28 @@ const CORE = (function () {
         return;
       }
 
-      // 2. an agent field is empty, so our agent cannot be ruled out ->
-      //    list both parties and let the reviewer decide
-      if (!hasAgentName(listing) || !hasAgentName(selling)) {
-        let n = 0;
-        n += tidy(r[m.buyer]) ? emit(tidy(r[m.buyer]), 'Unknown', unknown) : 0;
-        n += tidy(r[m.seller]) ? emit(tidy(r[m.seller]), 'Unknown', unknown) : 0;
-        if (!n) {
-          const row = base('Unknown');
-          row.first = NO_NAME; row.noName = true; row.attention = true;
-          row.notes.push('no agent and no client names in the MLS');
-          nodata.push(row);
-        }
-        return;
+      // 2. neither agent matches — whether the fields name someone else or are
+      //    empty, we cannot tell which side is the client, so list both
+      const agentNote = 'listing: ' + (listing || 'blank') + ' / selling: ' + (selling || 'blank');
+      const before = unknown.length;
+      if (tidy(r[m.buyer])) emit(tidy(r[m.buyer]), 'Unknown', unknown);
+      if (tidy(r[m.seller])) emit(tidy(r[m.seller]), 'Unknown', unknown);
+      if (unknown.length === before) {
+        const row = base('Unknown');
+        row.first = NO_NAME; row.noName = true; row.attention = true;
+        row.notes.push('no client names in the MLS');
+        row.notes.push(agentNote);
+        nodata.push(row);
+      } else {
+        for (let i = before; i < unknown.length; i++) unknown[i].notes.push(agentNote);
       }
-
-      // 3. both agents named, neither is ours -> not their deal
-      review.noAgent.push({ line: ri + 2, address: addrRaw, listing, selling });
     });
+
+    let merges = 0;
+    if (opts.mergeReturns) {
+      const m1 = mergeReturnClients(main);
+      main.length = 0; main.push.apply(main, m1.rows); merges = m1.merges;
+    }
 
     const byDate = (a, b) => {
       const da = a.annivDate || a.closedDate, db = b.annivDate || b.closedDate;
@@ -731,24 +873,26 @@ const CORE = (function () {
     if (unknown.length) sections.push({ id: 'unknown', banner: BANNER_UNKNOWN, rows: unknown });
     if (nodata.length) sections.push({ id: 'nodata', banner: BANNER_NODATA, rows: nodata });
 
-    return { sections, main, unknown, nodata,
+    return { sections, main, unknown, nodata, merges,
              rows: main.concat(unknown, nodata), review, headers: HEADERS };
   }
 
   function rowToArray(r) {
     return [
-      r.exclude ? 'TRUE' : 'FALSE', r.sinceSold ? 'TRUE' : 'FALSE',
+      '', '',                                  // Exclude? / Since Sold? are the client's to fill in
       r.first, r.last,
       fmtDate(r.annivDate), fmtDate(r.closedDate),
       r.role, r.price == null ? '' : r.price,
       r.line1, r.line2, r.city, r.state, r.zip,
-      r.phone, r.email, r.groups, r.tags
+      r.phone, r.email, r.groups, r.tags,
+      r.excludeSeller || ''
     ];
   }
 
   return { parseCSV, parseNameCell, parsePerson, looksLikeEntity, agentMatches, agentTargets,
            buildContactIndex, lookupContact, parseAddress, parseDate, parseMoney, fmtDate,
            build, rowToArray, titleCase, key, HEADERS, pickColumns, hasAgentName,
+           mergeReturnClients, resolveEntity, addrKey,
            BANNER_UNKNOWN, BANNER_NODATA, NO_NAME };
 })();
 /* ============================= CORE LOGIC END ============================= */
@@ -915,6 +1059,9 @@ const CORE = (function () {
       inheritLast: $('o-inherit').checked,
       dropMiddles: $('o-mid').checked,
       keepEntitiesWhole: $('o-entity').checked,
+      firstGivenOnly: $('o-firstonly').checked,
+      resolveTrusts: $('o-trust').checked,
+      mergeReturns: $('o-return').checked,
       skipTruncated: $('o-trunc').checked,
       fixCase: $('o-case').checked,
       exportEntities: $('o-keepentity').checked
@@ -945,7 +1092,8 @@ const CORE = (function () {
     $('runmsg').textContent = msg;
   }
   $('agent').addEventListener('input', () => { checkAgent(); checkReady(); });
-  ['o-pipe','o-amp','o-inherit','o-mid','o-entity','o-trunc','o-case','o-keepentity']
+  ['o-pipe','o-amp','o-inherit','o-mid','o-entity','o-trunc','o-case','o-keepentity',
+   'o-firstonly','o-trust','o-return']
     .forEach(id => $(id).addEventListener('change', () => { if (state.result) run(); }));
   checkReady();
 
@@ -975,9 +1123,9 @@ const CORE = (function () {
     const stats = [
       ['rows in the log', state.result.rows.length, false],
       ['with a contact match', matched, true],
-      ['no agent data — both parties listed', unknown.length, false],
+      ['no agent match — both parties listed', unknown.length, false],
       ['no client data — fill in by hand', nodata.length, false],
-      ['deals skipped, another agent', review.noAgent.length, false],
+      ['return clients merged', state.result.merges, false],
       ['names cut off by the MLS', review.truncated.length, false]
     ];
     $('stats').innerHTML = stats.map(([l, v, g]) =>
@@ -1030,8 +1178,6 @@ const CORE = (function () {
     if (!shownAny) { /* keep the empty message */ }
 
     const groups = [
-      ['Deals skipped — both agents named, neither is yours', review.noAgent,
-        r => `line ${r.line} · ${r.address || 'no address'} — listing: ${r.listing || '(blank)'} / selling: ${r.selling || '(blank)'}`],
       ['Names cut off at 50 characters — skipped', review.truncated,
         r => `line ${r.line} · ${r.role}: "${r.raw}" from "${r.source}"`]
     ];
@@ -1053,7 +1199,7 @@ const CORE = (function () {
   /* ---- exports ---- */
   const BANNER_TEXT = 'PLEASE SEE OUR GUIDE BEFORE STARTING YOUR REVIEW: ';
   const BANNER_URL = 'https://crmrefresh.org/guide-past-client-log';
-  const WIDTHS = [10, 12, 17.5, 16, 27.6, 18.4, 13, 13, 22.3, 19.5, 18.5, 17.8, 21.1, 15, 24, 13, 38.5];
+  const WIDTHS = [10, 12, 17.5, 16, 27.6, 18.4, 13, 13, 22.3, 19.5, 18.5, 17.8, 21.1, 15, 24, 13, 38.5, 26];
 
   function sheetName() {
     const a = ($('agent').value.split(/[\n;]/)[0] || 'Agent').trim();
@@ -1062,44 +1208,80 @@ const CORE = (function () {
 
   const FILL = { match: 'FFDBFFDA', unknown: 'FFFFF3B0', nodata: 'FFFFD6A5' };
   const FONT = { name: 'Arial', size: 10 };
+  // fills cover the sheet's own gridlines, so the grid is drawn on every cell
+  const GRID = { style: 'thin', color: { argb: 'FFD9D9D9' } };
+  const CELL_BORDER = { top: GRID, left: GRID, bottom: GRID, right: GRID };
   const BANNER_FILL = 'FFD3FFFF';
 
   $('dl-xlsx').addEventListener('click', async () => {
     if (!hasExcelJS || !state.result) return;
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Past Client Log Generator';
-    const ws = wb.addWorksheet(sheetName(), {
-      views: [{ state: 'frozen', ySplit: 2, showGridLines: true }]
-    });
     const NC = CORE.HEADERS.length;
 
-    ws.mergeCells(1, 1, 1, NC);
-    const b = ws.getCell('A1');
-    // clickable across the whole cell, but only the URL run carries the underline
-    b.value = {
-      hyperlink: BANNER_URL,
-      text: { richText: [
-        { text: BANNER_TEXT, font: Object.assign({}, FONT, { bold: true, color: { argb: 'FF1B2A38' } }) },
-        { text: BANNER_URL,  font: Object.assign({}, FONT, { bold: true, underline: true, color: { argb: 'FF1155CC' } }) }
-      ] }
+    // row 1 banner + row 2 headers + column widths, shared by both tabs
+    const startSheet = (title, banner) => {
+      const ws = wb.addWorksheet(title, {
+        views: [{ state: 'frozen', ySplit: 2, showGridLines: true }]
+      });
+      ws.mergeCells(1, 1, 1, NC);
+      const b = ws.getCell('A1');
+      if (banner) {
+        b.value = banner;
+        b.font = Object.assign({}, FONT, { bold: true, color: { argb: 'FF1B2A38' } });
+      } else {
+        // clickable across the whole cell, but only the URL run is underlined
+        b.value = {
+          hyperlink: BANNER_URL,
+          text: { richText: [
+            { text: BANNER_TEXT, font: Object.assign({}, FONT, { bold: true, color: { argb: 'FF1B2A38' } }) },
+            { text: BANNER_URL,  font: Object.assign({}, FONT, { bold: true, underline: true, color: { argb: 'FF1155CC' } }) }
+          ] }
+        };
+      }
+      b.alignment = { horizontal: 'left', vertical: 'middle' };
+      for (let ci = 1; ci <= NC; ci++) {
+        ws.getCell(1, ci).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BANNER_FILL } };
+      }
+      ws.getRow(1).height = 20;
+
+      const hr = ws.getRow(2);
+      CORE.HEADERS.forEach((h, i) => {
+        const c = hr.getCell(i + 1);
+        c.value = h;
+        c.font = Object.assign({}, FONT, { bold: true });
+        c.alignment = { vertical: 'middle', wrapText: true };
+        c.border = { top: GRID, left: GRID, right: GRID,
+                     bottom: { style: 'thin', color: { argb: 'FFBFBFBF' } } };
+      });
+      hr.height = 30;
+      WIDTHS.forEach((w, i) => ws.getColumn(i + 1).width = w);
+      ws.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2, column: NC } };
+      return ws;
     };
-    b.alignment = { horizontal: 'left', vertical: 'middle' };
-    for (let ci = 1; ci <= NC; ci++) {
-      ws.getCell(1, ci).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BANNER_FILL } };
-    }
-    ws.getRow(1).height = 20;
 
-    const hr = ws.getRow(2);
-    CORE.HEADERS.forEach((h, i) => {
-      const c = hr.getCell(i + 1);
-      c.value = h;
-      c.font = Object.assign({}, FONT, { bold: true });
-      c.alignment = { vertical: 'middle', wrapText: true };
-      c.border = { bottom: { style: 'thin', color: { argb: 'FFBFBFBF' } } };
-    });
-    hr.height = 30;
-    WIDTHS.forEach((w, i) => ws.getColumn(i + 1).width = w);
+    const writeRow = (ws, n, r, fill) => {
+      const row = ws.getRow(n);
+      const vals = [
+        null, null, r.first, r.last, r.annivDate, r.closedDate, r.role,
+        r.price == null ? null : r.price, r.line1, r.line2, r.city, r.state,
+        /^\d{5}$/.test(r.zip) ? Number(r.zip) : r.zip,
+        r.phone, r.email, r.groups, r.tags, r.excludeSeller || null
+      ];
+      vals.forEach((v, ci) => {
+        const c = row.getCell(ci + 1);
+        c.value = v === '' ? null : v;
+        if (ci === 4 || ci === 5) c.numFmt = 'mm/dd/yyyy';
+        if (ci === 7) c.numFmt = '"$"#,##0';
+        if (ci === 0 || ci === 1) c.alignment = { horizontal: 'center' };
+        c.font = Object.assign({}, FONT, (ci === 2 && r.noName) ? { italic: true } : {});
+        c.border = CELL_BORDER;
+        const bg = fill || (r.matched ? FILL.match : null);
+        if (bg) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+      });
+    };
 
+    const ws = startSheet(sheetName(), null);
     let n = 3;
     state.result.sections.forEach((sec, si) => {
       if (!sec.rows.length) return;
@@ -1117,34 +1299,15 @@ const CORE = (function () {
           const hc = ws.getCell(n, ci);
           hc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
           // 'medium' is the closest stock weight to 1.5pt
-          hc.border = { top: { style: 'medium' }, bottom: { style: 'medium' } };
+          hc.border = { top: { style: 'medium' }, bottom: { style: 'medium' },
+                        left: GRID, right: GRID };
         }
         ws.getRow(n).height = 20;
         n++;
       }
 
-      sec.rows.forEach(r => {
-        const row = ws.getRow(n++);
-        const vals = [
-          r.exclude, r.sinceSold, r.first, r.last, r.annivDate, r.closedDate, r.role,
-          r.price == null ? null : r.price, r.line1, r.line2, r.city, r.state,
-          /^\d{5}$/.test(r.zip) ? Number(r.zip) : r.zip,
-          r.phone, r.email, r.groups, r.tags
-        ];
-        vals.forEach((v, ci) => {
-          const c = row.getCell(ci + 1);
-          c.value = v === '' ? null : v;
-          if (ci === 4 || ci === 5) c.numFmt = 'mm/dd/yyyy';
-          if (ci === 7) c.numFmt = '"$"#,##0';
-          if (ci === 0 || ci === 1) c.alignment = { horizontal: 'center' };
-          c.font = Object.assign({}, FONT, (ci === 2 && r.noName) ? { italic: true } : {});
-          const bg = fill || (r.matched ? FILL.match : null);
-          if (bg) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
-        });
-      });
+      sec.rows.forEach(r => writeRow(ws, n++, r, fill));
     });
-
-    ws.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2, column: NC } };
 
     const buf = await wb.xlsx.writeBuffer();
     save(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
@@ -1161,6 +1324,7 @@ const CORE = (function () {
       if (sec.banner) lines.push(q(sec.banner));
       sec.rows.forEach(r => lines.push(CORE.rowToArray(r).map(q).join(',')));
     });
+
     save(new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }), fileStem() + '.csv');
     $('expmsg').textContent = 'CSV downloaded — no highlighting in this format.';
   });
@@ -1173,6 +1337,7 @@ const CORE = (function () {
       if (sec.banner) lines.push(sec.banner);              // lands in column C
       sec.rows.forEach(r => lines.push(CORE.rowToArray(r).slice(2).join('\t')));
     });
+
     const tsv = lines.join('\n');
     try {
       await navigator.clipboard.writeText(tsv);
