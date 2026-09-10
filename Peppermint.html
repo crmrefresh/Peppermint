@@ -18,6 +18,7 @@
     --match-line:#8fd18c;
     --unknown:#fff3b0;
     --nodata:#ffd6a5;
+    --excluded:#ededed;
     --sheet-pink:#ead1dc;
     --flag:#f6e4b8;
     --flag-line:#d9ad4a;
@@ -100,12 +101,14 @@
   tbody tr.matched td{background:var(--match)}
   tbody tr.sec-unknown td{background:var(--unknown)}
   tbody tr.sec-nodata td{background:var(--nodata)}
+  tbody tr.sec-excluded td{background:var(--excluded);color:var(--ink-soft)}
+  tbody tr.banner.sec-excluded td{background:var(--excluded)}
   tbody tr.banner td{font-weight:600;white-space:normal;padding:10px 9px;border-top:1px solid var(--line)}
   tbody tr.banner.sec-unknown td{background:var(--unknown)}
   tbody tr.banner.sec-nodata td{background:var(--nodata)}
   td.noname{font-style:italic}
   tbody tr.flagged td:first-child{box-shadow:inset 3px 0 0 var(--flag-line)}
-  td.note{white-space:normal;min-width:170px;color:var(--ink-soft)}
+  td.note{white-space:normal;min-width:230px;max-width:340px;color:var(--ink-soft)}
   .raw{color:var(--ink-soft);font-size:11.5px}
   .empty{padding:26px;text-align:center;color:var(--ink-soft);font-size:14px}
 
@@ -172,7 +175,7 @@
         <label class="opt"><input type="checkbox" id="o-inherit" checked><span>Inherit the last name across segments<small>&hellip; &amp; Adriana B &rarr; Adriana West</small></span></label>
         <label class="opt"><input type="checkbox" id="o-mid" checked><span>Drop middle initials and suffixes<small>Anger, Scott P Jr. &rarr; Scott Anger</small></span></label>
         <label class="opt"><input type="checkbox" id="o-entity" checked><span>Keep trusts and companies whole<small>Welland Family Trust, 18 Ritz Cove Llc</small></span></label>
-        <label class="opt"><input type="checkbox" id="o-trunc" checked><span>Skip segments cut off by the MLS 50-character limit<small>&hellip; |renault Fa &rarr; listed for review, not exported</small></span></label>
+        <label class="opt"><input type="checkbox" id="o-trunc"><span>Drop names cut off by the MLS 50-character limit<small>Off: &hellip; |renault Fa is kept and flagged. On: listed for review only</small></span></label>
         <label class="opt"><input type="checkbox" id="o-case" checked><span>Fix capitalisation<small>mcinally loftus &rarr; McInally Loftus</small></span></label>
         <label class="opt"><input type="checkbox" id="o-keepentity" checked><span>Export trusts and companies as rows<small>Uncheck to keep people only</small></span></label>
         <label class="opt"><input type="checkbox" id="o-firstonly" checked><span>First given name only<small>Emily Rosamond Walper &rarr; Emily Walper</small></span></label>
@@ -218,6 +221,7 @@
         <span><i class="sw" style="background:var(--flag)"></i>Something to eyeball before importing</span>
         <span><i class="sw" style="background:var(--unknown)"></i>No agent data &mdash; both parties listed, side marked Unknown</span>
         <span><i class="sw" style="background:var(--nodata)"></i>No client data &mdash; names to fill in by hand</span>
+        <span><i class="sw" style="background:var(--excluded)"></i>Historical reference only &mdash; not imported</span>
       </div>
       <div class="actions">
         <button id="cp-body">Copy rows for Google Sheets &mdash; paste at C3</button>
@@ -234,6 +238,7 @@
           <div class="ruleline"><code id="rule">=OR($N3&lt;&gt;"",$O3&lt;&gt;"")</code><button id="cp-rule" class="ghost">Copy the rule</button></div>
           <p class="fineprint">The rule greens any row that came back with a phone or an email, which is nearly all of them. A handful of rows match a contact who has neither &mdash; those stay white under the rule, and the <b>Needs an eyeball</b> filter above lists them.</p>
           <p><b>The two review blocks at the bottom.</b> Deals with no agent data are yellow, with both parties listed and the Buyer / Seller column set to Unknown &mdash; the closing date sits in both date columns so you keep whichever applies. Deals with no client name are orange, one row each, with <i>Data Not Available</i> in First Name. Each block has its own heading row. A values-only paste brings the text but not the merge or the colour, so the .xlsx below is the better route when these blocks are present.</p>
+          <p><b>The grey block.</b> The other half of each return client &mdash; the home they sold, or the purchase they later resold &mdash; sits in a grey block at the very bottom under a heading saying it is historical reference only. The client can read the full history without those rows sitting among the ones they are approving.</p>
           <p><b>Or skip the rule.</b> Download the .xlsx and drop it into Drive, then open it with Sheets. The banner, header colour, column widths, frozen header, date and dollar formats and the real green fills all survive the import. The two checkbox columns arrive as plain TRUE/FALSE &mdash; select A3:B and use Insert &rsaquo; Checkbox to turn them back into tick boxes.</p>
         </div>
       </details>
@@ -401,7 +406,14 @@ const CORE = (function () {
 
       // obvious stub left by the character cap
       if (seg.replace(/[^A-Za-z]/g, '').length < 3 && suspect) {
-        out.push({ first: '', last: '', kind: 'fragment', raw: seg, truncated: true, skip: true });
+        if (opts.skipTruncated) {
+          out.push({ first: '', last: '', kind: 'fragment', raw: seg, truncated: true, skip: true });
+        } else {
+          // keep it visible and unembellished — no inherited surname, since
+          // guessing one would invent a person who may not exist
+          out.push({ first: titleCase(seg, opts.fixCase), last: '', kind: 'person',
+                     raw: seg, truncated: true });
+        }
         return;
       }
 
@@ -640,12 +652,13 @@ const CORE = (function () {
 
   /* ---------- the build ---------- */
   const HEADERS = ['Exclude?','Since Sold?','First Name','Last Name','Home Anniversary Date (Buyers)',
-    'Closed Date (Sellers)','Buyer / Seller','Sale Price','Home Address Line 1','Home Address Line 2',
+    'Closed Date (Sellers)','Note','Buyer / Seller','Sale Price','Home Address Line 1','Home Address Line 2',
     'Home Address City','Home Address State','Home Address Zip Code','Phone','Email','Groups','Tags',
     'CRM: Exclude Seller from Import'];
 
   const BANNER_UNKNOWN = 'The following listings did not provide agent data so both parties are listed for review.';
   const BANNER_NODATA  = 'The following listings did not provide client data. Please fill in names below.';
+  const BANNER_EXCLUDED = 'These rows are ONLY for historical reference and will NOT be included in your CRM import';
   const NO_NAME = 'Data Not Available';
 
   // an agent field counts as filled only if it holds something name-shaped;
@@ -701,11 +714,13 @@ const CORE = (function () {
           primary.line1 = ''; primary.line2 = ''; primary.city = ''; primary.state = ''; primary.zip = '';
           primary.tags = 'CRM: Closed Date, Buyer, Seller'
             + (rec.closedDate ? ', ' + rec.closedDate.getFullYear() : '');
-          primary.notes = (rec.notes || []).concat(['return client — resold the same property']);
+          primary.notes = (rec.notes || []).concat(
+            ['Return client: resold the same property, so this is kept as a seller record.']);
 
           extra = Object.assign({}, buy);
           extra.excludeSeller = 'Exclude';
-          extra.notes = (buy.notes || []).concat(['the purchase they later resold']);
+          extra.notes = (buy.notes || []).concat(
+            ['Purchase row just for your records. Will not be included in the import.']);
         } else {
           // moved: the purchase they now live in is the record to import
           primary = Object.assign({}, buy);
@@ -713,12 +728,14 @@ const CORE = (function () {
           primary.closedDate = null;
           primary.tags = 'CRM: Home Anniversary, Buyer, Seller'
             + (buy.annivDate ? ', ' + buy.annivDate.getFullYear() : '');
-          primary.notes = (buy.notes || []).concat(['return client — bought, then sold a different property']);
+          primary.notes = (buy.notes || []).concat(
+            ['Return client: bought, then sold a different property, so this is kept as a buyer record.']);
 
           // the sale keeps its own close date and the property they sold
           extra = Object.assign({}, rec);
           extra.excludeSeller = 'Exclude';
-          extra.notes = (rec.notes || []).concat(['the property they sold after moving']);
+          extra.notes = (rec.notes || []).concat(
+            ['Seller row just for your records. Will not be included in the import.']);
         }
         shared(primary); shared(extra);
         out.push(primary); out.push(extra);
@@ -749,8 +766,8 @@ const CORE = (function () {
       const base = (role, extra) => {
         const notes = [];
         let attention = false;
-        if (addr.note) { notes.push(addr.note); attention = true; }
-        if (!date) { notes.push('no date'); attention = true; }
+        if (addr.note) { notes.push('Address is hidden in the MLS.'); attention = true; }
+        if (!date) { notes.push('No closing date in the MLS.'); attention = true; }
         const known = role === 'Buyer' || role === 'Seller';
         return Object.assign({
           exclude: '', sinceSold: '', excludeSeller: '',
@@ -786,21 +803,30 @@ const CORE = (function () {
           const r = resolveEntity(p.first, contactIndex);
           if (r && r.hit) {
             row.first = r.hit.first; row.last = r.hit.last; row.kind = 'person';
-            row.notes.push('name taken from "' + p.first + '"');
+            row.notes.push('Name taken from the trust "' + p.first + '". Please verify.');
             row.attention = true;
             found = { hit: r.hit, count: 1, hasInfo: !!(r.hit.email || r.hit.phone) };
           } else if (r) {
             row.notes.push(r.named
-              ? 'trust names ' + r.named + ', no contact by that name'
-              : r.count + ' contacts share the surname in this trust name');
+              ? 'Trust names ' + r.named + ', but no contact by that name.'
+              : r.count + ' contacts share the surname in this trust name.');
             row.attention = true;
           }
         }
         if (found) { row.phone = found.hit.phone; row.email = found.hit.email; row.matched = true; }
-        if (row.kind === 'entity') row.notes.push('trust / company');
-        if (p.truncated || p.stub) { row.notes.push('name may be cut off'); row.attention = true; }
-        if (found && found.count > 1) { row.notes.push(found.count + ' contacts share this name'); row.attention = true; }
-        if (found && !found.hasInfo) { row.notes.push('contact has no phone or email'); row.attention = true; }
+        if (row.kind === 'entity') row.notes.push('Listed as a trust or company.');
+        if (p.truncated || p.stub) {
+          row.notes.push('Name appears cut off due to the MLS character limit. Please verify.');
+          row.attention = true;
+        }
+        if (found && found.count > 1) {
+          row.notes.push(found.count + ' contacts share this name. Verify which one.');
+          row.attention = true;
+        }
+        if (found && !found.hasInfo) {
+          row.notes.push('Matching contact has no phone or email on file.');
+          row.attention = true;
+        }
         bucket.push(row);
       };
 
@@ -832,7 +858,8 @@ const CORE = (function () {
           const role = missing.length > 1 ? 'Unknown' : missing[0];
           const row = base(role);
           row.first = NO_NAME; row.noName = true; row.attention = true;
-          row.notes.push('no ' + missing.join(' or ').toLowerCase() + ' name in the MLS');
+          row.notes.push('No ' + missing.join(' or ').toLowerCase()
+            + ' name in the MLS. Please fill in.');
           nodata.push(row);
         }
         return;
@@ -840,14 +867,15 @@ const CORE = (function () {
 
       // 2. neither agent matches — whether the fields name someone else or are
       //    empty, we cannot tell which side is the client, so list both
-      const agentNote = 'listing: ' + (listing || 'blank') + ' / selling: ' + (selling || 'blank');
+      const agentNote = 'No agent match (listing: ' + (listing || 'blank') + ' / selling: '
+        + (selling || 'blank') + '). Confirm which party is the client.';
       const before = unknown.length;
       if (tidy(r[m.buyer])) emit(tidy(r[m.buyer]), 'Unknown', unknown);
       if (tidy(r[m.seller])) emit(tidy(r[m.seller]), 'Unknown', unknown);
       if (unknown.length === before) {
         const row = base('Unknown');
         row.first = NO_NAME; row.noName = true; row.attention = true;
-        row.notes.push('no client names in the MLS');
+        row.notes.push('No client names in the MLS. Please fill in.');
         row.notes.push(agentNote);
         nodata.push(row);
       } else {
@@ -856,9 +884,12 @@ const CORE = (function () {
     });
 
     let merges = 0;
+    const excluded = [];
     if (opts.mergeReturns) {
       const m1 = mergeReturnClients(main);
-      main.length = 0; main.push.apply(main, m1.rows); merges = m1.merges;
+      main.length = 0;
+      m1.rows.forEach(r => (r.excludeSeller ? excluded : main).push(r));
+      merges = m1.merges;
     }
 
     const byDate = (a, b) => {
@@ -867,14 +898,15 @@ const CORE = (function () {
       if (ta !== tb) return ta - tb;
       return (a.last + a.first).localeCompare(b.last + b.first);
     };
-    main.sort(byDate); unknown.sort(byDate); nodata.sort(byDate);
+    main.sort(byDate); unknown.sort(byDate); nodata.sort(byDate); excluded.sort(byDate);
 
     const sections = [{ id: 'main', rows: main }];
     if (unknown.length) sections.push({ id: 'unknown', banner: BANNER_UNKNOWN, rows: unknown });
     if (nodata.length) sections.push({ id: 'nodata', banner: BANNER_NODATA, rows: nodata });
+    if (excluded.length) sections.push({ id: 'excluded', banner: BANNER_EXCLUDED, rows: excluded });
 
-    return { sections, main, unknown, nodata, merges,
-             rows: main.concat(unknown, nodata), review, headers: HEADERS };
+    return { sections, main, unknown, nodata, excluded, merges,
+             rows: main.concat(unknown, nodata, excluded), review, headers: HEADERS };
   }
 
   function rowToArray(r) {
@@ -882,6 +914,7 @@ const CORE = (function () {
       '', '',                                  // Exclude? / Since Sold? are the client's to fill in
       r.first, r.last,
       fmtDate(r.annivDate), fmtDate(r.closedDate),
+      (r.notes || []).join(' '),
       r.role, r.price == null ? '' : r.price,
       r.line1, r.line2, r.city, r.state, r.zip,
       r.phone, r.email, r.groups, r.tags,
@@ -893,7 +926,7 @@ const CORE = (function () {
            buildContactIndex, lookupContact, parseAddress, parseDate, parseMoney, fmtDate,
            build, rowToArray, titleCase, key, HEADERS, pickColumns, hasAgentName,
            mergeReturnClients, resolveEntity, addrKey,
-           BANNER_UNKNOWN, BANNER_NODATA, NO_NAME };
+           BANNER_UNKNOWN, BANNER_NODATA, BANNER_EXCLUDED, NO_NAME };
 })();
 /* ============================= CORE LOGIC END ============================= */
 
@@ -1115,7 +1148,7 @@ const CORE = (function () {
 
   /* ---- render ---- */
   function render() {
-    const { sections, main, unknown, nodata, review } = state.result;
+    const { sections, main, unknown, nodata, excluded, review } = state.result;
     $('noresults').hidden = true;
     $('results').hidden = false;
 
@@ -1126,7 +1159,9 @@ const CORE = (function () {
       ['no agent match — both parties listed', unknown.length, false],
       ['no client data — fill in by hand', nodata.length, false],
       ['return clients merged', state.result.merges, false],
-      ['names cut off by the MLS', review.truncated.length, false]
+      ['historical only — not imported', excluded.length, false],
+      ['names the MLS cut off', state.result.rows.filter(r =>
+        r.notes.some(nt => nt.indexOf('cut off') > -1)).length + review.truncated.length, false]
     ];
     $('stats').innerHTML = stats.map(([l, v, g]) =>
       `<div class="stat${g ? ' green' : ''}"><b>${v.toLocaleString()}</b><span>${l}</span></div>`).join('');
@@ -1138,11 +1173,13 @@ const CORE = (function () {
       unmatched: main.length - matched,
       flagged: all.filter(r => r.attention).length,
       unknown: unknown.length,
-      nodata: nodata.length
+      nodata: nodata.length,
+      excluded: excluded.length
     };
     $('chips').innerHTML = [
       ['all', 'All rows'], ['matched', 'Contact found'], ['unmatched', 'No contact'],
-      ['flagged', 'Needs an eyeball'], ['unknown', 'No agent data'], ['nodata', 'No client data']
+      ['flagged', 'Needs an eyeball'], ['unknown', 'No agent data'], ['nodata', 'No client data'],
+      ['excluded', 'Not imported']
     ].map(([k, l]) => `<button class="chip" data-f="${k}" aria-pressed="${state.filter === k}">${l} (${counts[k]})</button>`).join('');
     $('chips').querySelectorAll('.chip').forEach(b => b.onclick = () => { state.filter = b.dataset.f; render(); });
 
@@ -1151,12 +1188,13 @@ const CORE = (function () {
       state.filter === 'matched' ? r.matched :
       state.filter === 'unmatched' ? (sec === 'main' && !r.matched) :
       state.filter === 'flagged' ? r.attention :
-      state.filter === 'unknown' ? sec === 'unknown' : sec === 'nodata';
+      state.filter === 'unknown' ? sec === 'unknown' :
+      state.filter === 'excluded' ? sec === 'excluded' : sec === 'nodata';
 
     const t = $('out');
-    const cols = CORE.HEADERS.length + 2;
+    const cols = CORE.HEADERS.length + 1;
     t.tHead.innerHTML = '<tr>' + CORE.HEADERS.map(h => `<th>${h}</th>`).join('') +
-      '<th>Notes (not exported)</th><th>MLS name field</th></tr>';
+      '<th>MLS name field</th></tr>';
 
     let html = '', shownAny = false;
     sections.forEach(sec => {
@@ -1167,11 +1205,12 @@ const CORE = (function () {
       html += rows.map(r => {
         const cls = sec.id === 'main' ? (r.matched ? 'matched' : '') : 'sec-' + sec.id;
         const cells = CORE.rowToArray(r).map((v, i) => {
-          if (i === 7 && v !== '') v = '$' + Number(v).toLocaleString();
-          return `<td${i === 2 && r.noName ? ' class="noname"' : ''}>${esc(v)}</td>`;
+          if (i === 8 && v !== '') v = '$' + Number(v).toLocaleString();
+          const klass = i === 6 ? ' class="note"' : (i === 2 && r.noName ? ' class="noname"' : '');
+          return `<td${klass}>${esc(v)}</td>`;
         }).join('');
         return `<tr class="${cls} ${r.attention ? 'flagged' : ''}">${cells}` +
-          `<td class="note">${esc(r.notes.join('; '))}</td><td class="raw">${esc(r.source)}</td></tr>`;
+          `<td class="raw">${esc(r.source)}</td></tr>`;
       }).join('');
     });
     t.tBodies[0].innerHTML = html || `<tr><td colspan="${cols}" class="empty">No rows in this view.</td></tr>`;
@@ -1199,14 +1238,14 @@ const CORE = (function () {
   /* ---- exports ---- */
   const BANNER_TEXT = 'PLEASE SEE OUR GUIDE BEFORE STARTING YOUR REVIEW: ';
   const BANNER_URL = 'https://crmrefresh.org/guide-past-client-log';
-  const WIDTHS = [10, 12, 17.5, 16, 27.6, 18.4, 13, 13, 22.3, 19.5, 18.5, 17.8, 21.1, 15, 24, 13, 38.5, 26];
+  const WIDTHS = [10, 12, 17.5, 16, 27.6, 18.4, 52, 13, 13, 22.3, 19.5, 18.5, 17.8, 21.1, 15, 24, 13, 38.5, 26];
 
   function sheetName() {
     const a = ($('agent').value.split(/[\n;]/)[0] || 'Agent').trim();
     return (a + ' - Past Clients').slice(0, 31);
   }
 
-  const FILL = { match: 'FFDBFFDA', unknown: 'FFFFF3B0', nodata: 'FFFFD6A5' };
+  const FILL = { match: 'FFDBFFDA', unknown: 'FFFFF3B0', nodata: 'FFFFD6A5', excluded: 'FFEDEDED' };
   const FONT = { name: 'Arial', size: 10 };
   // fills cover the sheet's own gridlines, so the grid is drawn on every cell
   const GRID = { style: 'thin', color: { argb: 'FFD9D9D9' } };
@@ -1263,8 +1302,9 @@ const CORE = (function () {
     const writeRow = (ws, n, r, fill) => {
       const row = ws.getRow(n);
       const vals = [
-        null, null, r.first, r.last, r.annivDate, r.closedDate, r.role,
-        r.price == null ? null : r.price, r.line1, r.line2, r.city, r.state,
+        null, null, r.first, r.last, r.annivDate, r.closedDate,
+        (r.notes || []).join(' ') || null,
+        r.role, r.price == null ? null : r.price, r.line1, r.line2, r.city, r.state,
         /^\d{5}$/.test(r.zip) ? Number(r.zip) : r.zip,
         r.phone, r.email, r.groups, r.tags, r.excludeSeller || null
       ];
@@ -1272,8 +1312,9 @@ const CORE = (function () {
         const c = row.getCell(ci + 1);
         c.value = v === '' ? null : v;
         if (ci === 4 || ci === 5) c.numFmt = 'mm/dd/yyyy';
-        if (ci === 7) c.numFmt = '"$"#,##0';
+        if (ci === 8) c.numFmt = '"$"#,##0';
         if (ci === 0 || ci === 1) c.alignment = { horizontal: 'center' };
+        if (ci === 6) c.alignment = { vertical: 'top', wrapText: true };
         c.font = Object.assign({}, FONT, (ci === 2 && r.noName) ? { italic: true } : {});
         c.border = CELL_BORDER;
         const bg = fill || (r.matched ? FILL.match : null);
