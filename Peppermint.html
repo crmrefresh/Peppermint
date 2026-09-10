@@ -562,9 +562,27 @@ const CORE = (function () {
     for (const k of keys) {
       const hits = (index.idx.get(k) || []);
       if (!hits.length) continue;
-      const withBoth = hits.find(h => h.email && h.phone);
-      const withAny = hits.find(h => h.email || h.phone);
-      return { hit: withBoth || withAny || hits[0], count: hits.length, hasInfo: !!withAny };
+
+      const uniq = f => {
+        const out = [];
+        hits.forEach(h => {
+          const v = String(h[f] || '').trim();
+          if (v && !out.some(x => key(x) === key(v))) out.push(v);
+        });
+        return out;
+      };
+      const emails = uniq('email'), phones = uniq('phone');
+
+      // several records under one name disagreeing on the details: picking a
+      // winner is a judgement call that belongs to whoever owns the CRM
+      if (emails.length > 1 || phones.length > 1) {
+        return { hit: { first: hits[0].first, last: hits[0].last, email: '', phone: '' },
+                 count: hits.length, hasInfo: false, conflict: true };
+      }
+
+      return { hit: { first: hits[0].first, last: hits[0].last,
+                      email: emails[0] || '', phone: phones[0] || '' },
+               count: hits.length, hasInfo: !!(emails.length || phones.length) };
     }
     return null;
   }
@@ -831,11 +849,10 @@ const CORE = (function () {
           row.notes.push('Name appears cut off due to the MLS character limit. Please verify.');
           row.attention = true;
         }
-        if (found && found.count > 1) {
-          row.notes.push(found.count + ' contacts share this name. Verify which one.');
+        if (found && found.conflict) {
+          row.notes.push('More than one contact with a name match. Can be merged in the CRM once imported.');
           row.attention = true;
-        }
-        if (found && !found.hasInfo) {
+        } else if (found && !found.hasInfo) {
           row.notes.push('Matching contact has no phone or email on file.');
           row.attention = true;
         }
