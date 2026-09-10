@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Past Client Log Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+<style>
+  :root{
+    --ink:#14202b;
+    --ink-soft:#4a5b6b;
+    --line:#d8dee3;
+    --line-soft:#e8edf0;
+    --paper:#ffffff;
+    --bg:#eef1f3;
+    --match:#dbffda;
+    --match-line:#8fd18c;
+    --unknown:#fff3b0;
+    --nodata:#ffd6a5;
+    --sheet-pink:#ead1dc;
+    --flag:#f6e4b8;
+    --flag-line:#d9ad4a;
+    --btn:#1b2a38;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-variant-numeric:tabular-nums;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+  header.top{display:flex;flex-wrap:wrap;gap:16px;align-items:baseline;justify-content:space-between;margin-bottom:22px}
+  h1{font-size:23px;font-weight:650;letter-spacing:-.2px;margin:0}
+  .sub{color:var(--ink-soft);font-size:14px;margin:4px 0 0;max-width:62ch}
+  .libnote{font-size:12.5px;color:var(--ink-soft)}
+  .libnote b{font-weight:600}
+
+  section.step{background:var(--paper);border:1px solid var(--line);border-radius:8px;margin-bottom:16px;overflow:hidden}
+  .step-hd{display:flex;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line-soft)}
+  .num{flex:0 0 24px;height:24px;border-radius:50%;background:var(--ink);color:#fff;font-size:13px;font-weight:600;display:grid;place-items:center}
+  .step-hd h2{font-size:16px;font-weight:600;margin:0}
+  .step-hd .hint{margin-left:auto;font-size:13px;color:var(--ink-soft)}
+  .step-bd{padding:18px}
+
+  .drops{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media (max-width:760px){.drops{grid-template-columns:1fr}}
+  .drop{border:1.5px dashed var(--line);border-radius:6px;padding:16px;background:#fbfcfd;transition:border-color .15s,background .15s}
+  .drop.over{border-color:var(--ink);background:#f3f6f8}
+  .drop.ready{border-style:solid;border-color:var(--match-line);background:#f7fdf7}
+  .drop h3{margin:0 0 4px;font-size:14.5px;font-weight:600}
+  .drop p{margin:0 0 12px;color:var(--ink-soft);font-size:13px}
+  .drop .file{font-size:13px;color:var(--ink);word-break:break-all}
+  .drop .file b{font-weight:600}
+  input[type=file]{font-size:13px;max-width:100%}
+
+  .maps{margin-top:14px;border-top:1px solid var(--line-soft);padding-top:12px}
+  .maps summary{cursor:pointer;font-size:13.5px;color:var(--ink-soft)}
+  .maps summary:hover{color:var(--ink)}
+  .mapgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px 14px;margin-top:12px}
+  .mapgrid label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:3px}
+  select,input[type=text]{width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:5px;background:#fff;font:inherit;font-size:13.5px;color:var(--ink)}
+  select:focus,input:focus{outline:2px solid #1b2a38;outline-offset:1px}
+
+  .agentrow{max-width:640px}
+  .field label{display:block;font-size:13px;font-weight:600;margin-bottom:5px}
+  .field .help{font-size:12.5px;color:var(--ink-soft);margin-top:6px}
+  .warn{margin-top:8px;font-size:12.5px;background:#fff8e6;border:1px solid var(--flag-line);border-radius:5px;padding:7px 9px;display:none}
+  .warn.on{display:block}
+  .opts{margin-top:16px;border-top:1px solid var(--line-soft);padding-top:14px}
+  .opts h4{margin:0 0 10px;font-size:13px;font-weight:600}
+  .optgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:9px 20px;margin-top:12px}
+  .opt{display:flex;gap:8px;align-items:flex-start;font-size:13.5px}
+  .opt input{margin:3px 0 0}
+  .opt span small{display:block;color:var(--ink-soft);font-size:12px}
+
+  .actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:18px}
+  button{font:inherit;font-size:14px;border-radius:6px;border:1px solid var(--btn);background:var(--btn);color:#fff;padding:9px 15px;cursor:pointer}
+  button.ghost{background:#fff;color:var(--ink);border-color:var(--line)}
+  button.ghost:hover{border-color:var(--ink)}
+  button:disabled{opacity:.42;cursor:not-allowed}
+  button.go{background:#0f5c3f;border-color:#0f5c3f}
+  .msg{font-size:13px;color:var(--ink-soft)}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line-soft);border:1px solid var(--line-soft);border-radius:6px;overflow:hidden;margin-bottom:16px}
+  .stat{background:#fff;padding:12px 14px}
+  .stat b{display:block;font-size:24px;font-weight:650;letter-spacing:-.5px}
+  .stat span{font-size:12.5px;color:var(--ink-soft)}
+  .stat.green b{color:#166b3a}
+
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px}
+  .chip{border:1px solid var(--line);background:#fff;border-radius:20px;padding:5px 12px;font-size:13px;cursor:pointer;color:var(--ink-soft)}
+  .chip[aria-pressed=true]{background:var(--ink);color:#fff;border-color:var(--ink)}
+
+  .tablewrap{border:1px solid var(--line);border-radius:6px;overflow:auto;max-height:62vh;background:#fff}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;white-space:nowrap}
+  thead th{position:sticky;top:0;background:var(--sheet-pink);text-align:left;font-weight:600;padding:8px 9px;border-bottom:1px solid var(--line);border-right:1px solid rgba(0,0,0,.06);z-index:2}
+  tbody td{padding:6px 9px;border-bottom:1px solid var(--line-soft);border-right:1px solid var(--line-soft)}
+  tbody tr.matched td{background:var(--match)}
+  tbody tr.sec-unknown td{background:var(--unknown)}
+  tbody tr.sec-nodata td{background:var(--nodata)}
+  tbody tr.banner td{font-weight:600;white-space:normal;padding:10px 9px;border-top:1px solid var(--line)}
+  tbody tr.banner.sec-unknown td{background:var(--unknown)}
+  tbody tr.banner.sec-nodata td{background:var(--nodata)}
+  td.noname{font-style:italic}
+  tbody tr.flagged td:first-child{box-shadow:inset 3px 0 0 var(--flag-line)}
+  td.note{white-space:normal;min-width:170px;color:var(--ink-soft)}
+  .raw{color:var(--ink-soft);font-size:11.5px}
+  .empty{padding:26px;text-align:center;color:var(--ink-soft);font-size:14px}
+
+  .review{margin-top:18px}
+  .review h3{font-size:14px;margin:0 0 8px;font-weight:600}
+  .rgroup{border:1px solid var(--line);border-radius:6px;margin-bottom:8px;background:#fff}
+  .rgroup summary{padding:10px 13px;cursor:pointer;font-size:13.5px}
+  .rgroup summary b{font-weight:600}
+  .rlist{padding:0 13px 12px;font-size:12.5px;color:var(--ink-soft);max-height:220px;overflow:auto}
+  .rlist div{padding:3px 0;border-top:1px solid var(--line-soft)}
+  details.sheets{margin-top:14px;border:1px solid var(--line);border-radius:6px;background:#fbfcfd}
+  details.sheets summary{padding:11px 14px;cursor:pointer;font-size:13.5px;font-weight:600}
+  .sheetbd{padding:0 16px 14px;font-size:13.5px;max-width:78ch}
+  .sheetbd p{margin:0 0 10px}
+  .sheetbd b{font-weight:600}
+  .hex{white-space:nowrap;font-weight:600}
+  .ruleline{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px}
+  .ruleline code{background:#fff;border:1px solid var(--line);border-radius:5px;padding:7px 10px;font-size:13px}
+  .fineprint{color:var(--ink-soft);font-size:12.5px}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px;font-size:12.5px;color:var(--ink-soft)}
+  .sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:5px;border:1px solid rgba(0,0,0,.15)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div>
+    <h1>Past Client Log Generator</h1>
+    <p class="sub">Cross-references an agent's contact export against their MLS results, keeps only the side of each deal where they represented the client, and writes it into the Past Client Log layout.</p>
+  </div>
+  <div class="libnote" id="libnote"></div>
+</header>
+
+<!-- STEP 1 -->
+<section class="step">
+  <div class="step-hd"><div class="num">1</div><h2>Load the two files</h2><div class="hint">.csv or .xlsx</div></div>
+  <div class="step-bd">
+    <div class="drops">
+      <div class="drop" id="drop-contacts">
+        <h3>Agent Final Import</h3>
+        <p>The contact export. This is where phone numbers and emails come from.</p>
+        <input type="file" id="file-contacts" accept=".csv,.txt,.xlsx,.xls">
+        <div class="file" id="info-contacts"></div>
+      </div>
+      <div class="drop" id="drop-mls">
+        <h3>MLS Results</h3>
+        <p>Closed deals with listing agent, selling agent, buyer name and seller name.</p>
+        <input type="file" id="file-mls" accept=".csv,.txt,.xlsx,.xls">
+        <div class="file" id="info-mls"></div>
+      </div>
+    </div>
+
+    <details class="maps" id="maps" hidden>
+      <summary>Column mapping (auto-detected — open to change)</summary>
+      <div class="mapgrid" id="mapgrid"></div>
+    </details>
+
+    <details class="maps" id="layouts">
+      <summary>Name layouts (all on &mdash; open to change)</summary>
+      <div class="optgrid">
+        <label class="opt"><input type="checkbox" id="o-pipe" checked><span>Split on <b>|</b> into separate people<small>Bergmann, Anthony | bergmann, Kelly</small></span></label>
+        <label class="opt"><input type="checkbox" id="o-amp" checked><span>Split on <b>&amp;</b> into separate people<small>West,jason E &amp; Adriana B</small></span></label>
+        <label class="opt"><input type="checkbox" id="o-inherit" checked><span>Inherit the last name across segments<small>&hellip; &amp; Adriana B &rarr; Adriana West</small></span></label>
+        <label class="opt"><input type="checkbox" id="o-mid" checked><span>Drop middle initials and suffixes<small>Anger, Scott P Jr. &rarr; Scott Anger</small></span></label>
+        <label class="opt"><input type="checkbox" id="o-entity" checked><span>Keep trusts and companies whole<small>Welland Family Trust, 18 Ritz Cove Llc</small></span></label>
+        <label class="opt"><input type="checkbox" id="o-trunc" checked><span>Skip segments cut off by the MLS 50-character limit<small>&hellip; |renault Fa &rarr; listed for review, not exported</small></span></label>
+        <label class="opt"><input type="checkbox" id="o-case" checked><span>Fix capitalisation<small>mcinally loftus &rarr; McInally Loftus</small></span></label>
+        <label class="opt"><input type="checkbox" id="o-keepentity" checked><span>Export trusts and companies as rows<small>Uncheck to keep people only</small></span></label>
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- STEP 2 -->
+<section class="step">
+  <div class="step-hd"><div class="num">2</div><h2>Name your agent</h2><div class="hint">decides which side of each deal is the client</div></div>
+  <div class="step-bd">
+    <div class="agentrow">
+      <div class="field">
+        <label for="agent">Agent name as it appears in the MLS</label>
+        <input type="text" id="agent" list="agentlist" placeholder="e.g. Roderic Stadelmann" autocomplete="off">
+        <datalist id="agentlist"></datalist>
+        <div class="help">Listing agent matches &rarr; the <b>seller</b> is the client. Selling agent matches &rarr; the <b>buyer</b> is the client. Both match &rarr; both sides.<br>
+        The first and last name must match exactly. Capitalisation, accents, punctuation and middle initials are ignored &mdash; nothing else is, so Erik and Candace Stadelmann stay out. If the MLS spells the name more than one way, put each spelling on its own line.</div>
+        <div class="warn" id="agentwarn"></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="run" class="go" disabled>Build the log</button>
+      <span class="msg" id="runmsg">Load both files and enter an agent name.</span>
+    </div>
+  </div>
+</section>
+
+<!-- STEP 3 -->
+<section class="step">
+  <div class="step-hd"><div class="num">3</div><h2>Review and export</h2><div class="hint" id="exphint"></div></div>
+  <div class="step-bd">
+    <div id="results" hidden>
+      <div class="stats" id="stats"></div>
+      <div class="chips" id="chips"></div>
+      <div class="tablewrap"><table id="out"><thead></thead><tbody></tbody></table></div>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--match)"></i>Contact found in file 1 — phone and email filled in</span>
+        <span><i class="sw" style="background:var(--flag)"></i>Something to eyeball before importing</span>
+        <span><i class="sw" style="background:var(--unknown)"></i>No agent data &mdash; both parties listed, side marked Unknown</span>
+        <span><i class="sw" style="background:var(--nodata)"></i>No client data &mdash; names to fill in by hand</span>
+      </div>
+      <div class="actions">
+        <button id="cp-body">Copy rows for Google Sheets &mdash; paste at C3</button>
+        <button id="dl-xlsx" class="ghost">Download .xlsx</button>
+        <button id="dl-csv" class="ghost">Download .csv</button>
+        <span class="msg" id="expmsg"></span>
+      </div>
+
+      <details class="sheets" id="sheets">
+        <summary>Getting this into Google Sheets with the template formatting intact</summary>
+        <div class="sheetbd">
+          <p><b>The way that keeps everything.</b> In Drive, make a copy of <i>TEMPLATE - Past Client Log</i>, rename it for the agent, then paste the copied rows into cell <b>C3</b>. Starting at C leaves the Exclude and Since Sold checkboxes, the banner and the header formatting untouched &mdash; you are only filling in First Name through Tags.</p>
+          <p><b>Bringing the green with it.</b> A values-only paste carries no colour, so add it as a rule once per sheet: select <b>A3:Q</b>, then Format &rsaquo; Conditional formatting &rsaquo; Custom formula is, and fill with <span class="hex"><i class="sw" style="background:var(--match)"></i>#dbffda</span>.</p>
+          <div class="ruleline"><code id="rule">=OR($N3&lt;&gt;"",$O3&lt;&gt;"")</code><button id="cp-rule" class="ghost">Copy the rule</button></div>
+          <p class="fineprint">The rule greens any row that came back with a phone or an email, which is nearly all of them. A handful of rows match a contact who has neither &mdash; those stay white under the rule, and the <b>Needs an eyeball</b> filter above lists them.</p>
+          <p><b>The two review blocks at the bottom.</b> Deals with no agent data are yellow, with both parties listed and the Buyer / Seller column set to Unknown &mdash; the closing date sits in both date columns so you keep whichever applies. Deals with no client name are orange, one row each, with <i>Data Not Available</i> in First Name. Each block has its own heading row. A values-only paste brings the text but not the merge or the colour, so the .xlsx below is the better route when these blocks are present.</p>
+          <p><b>Or skip the rule.</b> Download the .xlsx and drop it into Drive, then open it with Sheets. The banner, header colour, column widths, frozen header, date and dollar formats and the real green fills all survive the import. The two checkbox columns arrive as plain TRUE/FALSE &mdash; select A3:B and use Insert &rsaquo; Checkbox to turn them back into tick boxes.</p>
+        </div>
+      </details>
+      <div class="review" id="review"></div>
+    </div>
+    <div class="empty" id="noresults">Nothing built yet.</div>
+  </div>
+</section>
+
+</div>
+
+<script>
+/* ============================ CORE LOGIC START ============================ *
+ * No DOM access below this line until CORE LOGIC END. Pure functions so the
+ * matching rules can be tested outside the browser.
+ * ========================================================================== */
+const CORE = (function () {
+
+  const MLS_CELL_CAP = 50; // MLS truncates buyer/seller strings at 50 chars
+
+  /* ---------- CSV ---------- */
+  function parseCSV(text) {
+    text = text.replace(/^\uFEFF/, '');
+    const rows = [];
+    let row = [], field = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) {
+        if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
+        else field += c;
+      } else if (c === '"') q = true;
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else if (c === '\r') { /* skip */ }
+      else field += c;
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    return rows.filter(r => r.some(v => String(v).trim() !== ''));
+  }
+
+  /* ---------- text helpers ---------- */
+  const SUFFIXES = new Set(['jr','jr.','sr','sr.','ii','iii','iv','v','vi','md','m.d.','phd','ph.d.','dds','esq','esq.','dvm','cpa','ret','trustee','tr','trs','etal','et','al','deceased','dec','dcsd']);
+
+  const ENTITY_WORDS = new Set([
+    'llc','l.l.c','l.l.c.','llc.','lc','inc','inc.','incorporated','corp','corp.','corporation',
+    'co','co.','company','ltd','ltd.','limited','lp','l.p.','llp','plc','pllc','pc',
+    'trust','trusts','tru','trus','trst','trst.','trustee','trustees',
+    'family','fam','fmt','flt','revocable','revoc','rev','irrevocable','irrev','living','liv',
+    'estate','estates','survivors','survivor','surviving','marital','decedent','decedents',
+    'exempt','bypass','residuary','gst','ira','sep','separate','prop','property','properties',
+    'holdings','holding','hldgs','hldg','ventures','venture','partners','partnership','partnershp',
+    'investments','investment','invest','capital','group','grp','enterprises','enterprise',
+    'associates','assoc','assn','bank','n.a.','fund','funds','foundation','church','ministries',
+    'homes','realty','construction','development','developments','builders',
+    'management','mgmt','equity','equities','acquisitions','acq','portfolio','residential',
+    'fbo','ttee','ttees'
+  ]);
+
+  function stripAccents(s) {
+    return String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  }
+  function key(s) { // normalised comparison key
+    return stripAccents(String(s || '')).toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+  function tidy(s) {
+    return String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  }
+  function titleCase(s, on) {
+    if (!on) return tidy(s);
+    return tidy(s).toLowerCase().split(' ').map(w => {
+      if (!w) return w;
+      // hyphens and apostrophes get their own capital
+      return w.split(/([-'’])/).map((part, idx) => {
+        if (idx % 2) return part;
+        if (!part) return part;
+        let out = part.charAt(0).toUpperCase() + part.slice(1);
+        if (/^Mc[a-z]{2,}/.test(out)) out = 'Mc' + out.charAt(2).toUpperCase() + out.slice(3);
+        else if (/^Mac[a-z]{3,}/.test(out)) out = 'Mac' + out.charAt(3).toUpperCase() + out.slice(4);
+        return out;
+      }).join('');
+    }).join(' ');
+  }
+  function isSuffix(tok) { return SUFFIXES.has(String(tok).toLowerCase()); }
+  function isInitial(tok) { return /^[a-z]\.?$/i.test(tok); }
+
+  function looksLikeEntity(s) {
+    const t = tidy(s);
+    if (!t) return false;
+    const toks = t.replace(/[,]/g, ' ').split(/\s+/);
+    for (const tok of toks) {
+      const k = tok.toLowerCase().replace(/[^a-z0-9.]/g, '');
+      if (k && ENTITY_WORDS.has(k)) return true;
+    }
+    if (/\b(19|20)\d{2}\b/.test(t)) return true;      // 1999 Revocable Living Tru
+    if (/^\d/.test(t)) return true;                    // 18 Ritz Cove Llc
+    if (/\b(l\s?l\s?c|inc)\b/i.test(t)) return true;
+    return false;
+  }
+
+  /* ---------- one person out of one segment ---------- */
+  function parsePerson(seg, opts, inheritedLast) {
+    const raw = tidy(seg).replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9.'’-]+$/g, '');
+    if (!raw) return null;
+
+    let lastRaw = '', givenRaw = '';
+    const comma = raw.indexOf(',');
+    if (comma > -1) {
+      lastRaw = raw.slice(0, comma);
+      givenRaw = raw.slice(comma + 1);
+    } else {
+      let toks = raw.split(/\s+/);
+      const meaningful = toks.filter(t => !isSuffix(t) && !isInitial(t));
+      if (meaningful.length <= 1 && inheritedLast) {
+        givenRaw = meaningful.join(' ') || toks.join(' ');
+        lastRaw = inheritedLast;
+      } else {
+        // trailing suffix tokens sit after the surname: Dever David H Iv
+        let end = toks.length - 1;
+        while (end > 0 && isSuffix(toks[end])) end--;
+        lastRaw = toks[end];
+        givenRaw = toks.slice(0, end).join(' ');
+        if (!givenRaw) { givenRaw = lastRaw; lastRaw = inheritedLast || ''; }
+      }
+    }
+
+    let given = tidy(givenRaw).split(/\s+/).filter(Boolean)
+      .filter(t => !isSuffix(t))
+      .filter(t => !(opts.dropMiddles && isInitial(t)));
+    let last = tidy(lastRaw).split(/\s+/).filter(Boolean).filter(t => !isSuffix(t)).join(' ');
+
+    if (!given.length && last) { given = [last]; last = inheritedLast || ''; }
+    if (!given.length) return null;
+
+    const first = given.join(' ');
+    const stub = (last && last.replace(/[^A-Za-z]/g, '').length <= 2) ||
+                 (first.replace(/[^A-Za-z]/g, '').length <= 1);
+    return {
+      first: titleCase(first, opts.fixCase),
+      last: titleCase(last, opts.fixCase),
+      kind: 'person',
+      stub: stub,
+      raw: tidy(seg)
+    };
+  }
+
+  /* ---------- a whole Buyer Name / Seller Name cell ---------- */
+  function parseNameCell(cell, opts) {
+    const raw = tidy(cell);
+    const out = [];
+    if (!raw) return out;
+
+    const truncatedCell = raw.length >= MLS_CELL_CAP;
+    const segs = opts.splitPipe ? raw.split('|') : [raw];
+    let inherited = '';
+
+    segs.forEach((segRaw, sIdx) => {
+      const seg = tidy(segRaw);
+      if (!seg) return;
+      const isLastSeg = sIdx === segs.length - 1;
+      const suspect = truncatedCell && isLastSeg && segs.length > 0;
+
+      // obvious stub left by the character cap
+      if (seg.replace(/[^A-Za-z]/g, '').length < 3 && suspect) {
+        out.push({ first: '', last: '', kind: 'fragment', raw: seg, truncated: true, skip: true });
+        return;
+      }
+
+      if (opts.keepEntitiesWhole && looksLikeEntity(seg)) {
+        out.push({
+          first: titleCase(seg, opts.fixCase), last: '', kind: 'entity', raw: seg,
+          truncated: suspect, skip: suspect && opts.skipTruncated
+        });
+        return;
+      }
+
+      const parts = opts.splitAmp ? seg.split(/\s*&\s*/) : [seg];
+      let segLast = '';
+      parts.forEach((p, pIdx) => {
+        const inheritFrom = opts.inheritLast ? (segLast || inherited) : '';
+        const person = parsePerson(p, opts, inheritFrom);
+        if (!person) return;
+        if (pIdx === 0 && person.last) segLast = person.last;
+        if (person.last) inherited = person.last;
+        person.truncated = suspect;
+        person.skip = suspect && opts.skipTruncated;
+        out.push(person);
+      });
+    });
+
+    // de-duplicate identical people inside one cell
+    const seen = new Set();
+    return out.filter(p => {
+      const k = p.kind + '|' + key(p.first) + '|' + key(p.last);
+      if (seen.has(k) && !p.skip) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+
+  /* ---------- agent matching ---------- */
+  function agentTargets(text) {
+    return String(text || '')
+      .split(/[\n;]+/).map(t => tidy(t)).filter(Boolean)
+      .map(t => {
+        let n = t;
+        if (n.indexOf(',') > -1) { const [a, b] = n.split(','); n = tidy(b) + ' ' + tidy(a); }
+        const toks = tidy(n).split(/\s+/).filter(w => !isSuffix(w) && !isInitial(w));
+        if (toks.length < 2) return { first: '', last: key(toks[0] || ''), partial: true, label: t };
+        return { first: key(toks[0]), last: key(toks[toks.length - 1]), partial: false, label: t };
+      });
+  }
+
+  function agentCellNames(cell) {
+    return String(cell || '').split(/[|&\/]| and /i).map(s => tidy(s)).filter(Boolean)
+      .map(s => {
+        let t = s;
+        if (t.indexOf(',') > -1) { // "Stadelmann, Roderic"
+          const [a, b] = t.split(',');
+          t = tidy(b) + ' ' + tidy(a);
+        }
+        const toks = tidy(t).split(/\s+/).filter(w => !isSuffix(w) && !isInitial(w));
+        if (!toks.length) return null;
+        if (toks.length === 1) return { first: '', last: key(toks[0]) };
+        return { first: key(toks[0]), last: key(toks[toks.length - 1]) };
+      }).filter(Boolean);
+  }
+
+  // Exact first + last name, every time. Case, accents, punctuation and
+  // middle initials are ignored; nothing else is.
+  function agentMatches(cell, targets) {
+    const cands = agentCellNames(cell);
+    for (const c of cands) {
+      for (const t of targets) {
+        if (t.partial) continue;              // a lone surname never matches
+        if (c.first === t.first && c.last === t.last) return true;
+      }
+    }
+    return false;
+  }
+
+  /* ---------- contacts index ---------- */
+  const EMAIL_ORDER = [/^primary\s*email$/i, /^email$/i, /^primary\s*personal\s*email$/i, /^e-?mail\s*\d*$/i, /e-?mail/i];
+  const PHONE_ORDER = [/^mobile\s*phone$/i, /^primary\s*phone$/i, /^phone$/i, /^home\s*phone$/i, /^cell/i, /^work\s*phone$/i, /phone|mobile|cell/i];
+
+  function pickColumns(headers, patterns) {
+    const used = new Set(), out = [];
+    patterns.forEach(re => headers.forEach((h, i) => {
+      if (!used.has(i) && re.test(tidy(h))) { used.add(i); out.push(i); }
+    }));
+    return out;
+  }
+
+  function firstValue(row, idxs) {
+    for (const i of idxs) {
+      const v = tidy(row[i]);
+      if (v) return v;
+    }
+    return '';
+  }
+
+  function buildContactIndex(headers, rows, map) {
+    const emailCols = map.emailCols && map.emailCols.length ? map.emailCols : pickColumns(headers, EMAIL_ORDER);
+    const phoneCols = map.phoneCols && map.phoneCols.length ? map.phoneCols : pickColumns(headers, PHONE_ORDER);
+    const idx = new Map();
+    const add = (k, rec) => {
+      if (!k) return;
+      if (!idx.has(k)) idx.set(k, []);
+      idx.get(k).push(rec);
+    };
+    rows.forEach((r, i) => {
+      const f = tidy(r[map.first]).replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9.'’-]+$/g, '');
+      const l = tidy(r[map.last]).replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9.'’-]+$/g, '');
+      if (!f && !l) return;
+      const rec = {
+        row: i + 2,
+        first: f, last: l,
+        email: firstValue(r, emailCols),
+        phone: firstValue(r, phoneCols)
+      };
+      add(key(f) + '|' + key(l), rec);         // person
+      add(key(f + l) + '|', rec);              // entity: whole string vs first+last
+      if (!l) add(key(f) + '|', rec);
+    });
+    return { idx, emailCols, phoneCols };
+  }
+
+  function lookupContact(person, index) {
+    if (!index) return null;
+    const keys = person.kind === 'entity'
+      ? [key(person.first) + '|']
+      : [key(person.first) + '|' + key(person.last)];
+    for (const k of keys) {
+      const hits = (index.idx.get(k) || []);
+      if (!hits.length) continue;
+      const withBoth = hits.find(h => h.email && h.phone);
+      const withAny = hits.find(h => h.email || h.phone);
+      return { hit: withBoth || withAny || hits[0], count: hits.length, hasInfo: !!withAny };
+    }
+    return null;
+  }
+
+  /* ---------- addresses, dates, money ---------- */
+  const HIDDEN_ADDR = /visible only to agents|address not|withheld|undisclosed/i;
+
+  function parseAddress(a) {
+    const raw = tidy(a);
+    const out = { line1: '', line2: '', city: '', state: '', zip: '', note: '' };
+    if (!raw) return out;
+    let parts = raw.split(',').map(p => tidy(p)).filter(Boolean);
+    parts = parts.filter(p => {
+      if (HIDDEN_ADDR.test(p)) { out.note = 'address hidden in MLS'; return false; }
+      return true;
+    });
+    if (!parts.length) return out;
+    const last = parts[parts.length - 1];
+    const m = last.match(/^([A-Za-z]{2})\.?\s+(\d{5})(?:-\d{4})?$/);
+    if (m && parts.length >= 3) {
+      out.state = m[1].toUpperCase();
+      out.zip = m[2];
+      out.city = parts[parts.length - 2];
+      out.line1 = parts[0];
+      out.line2 = parts.slice(1, parts.length - 2).join(', ');
+    } else if (m && parts.length === 2) {
+      out.state = m[1].toUpperCase(); out.zip = m[2]; out.line1 = parts[0];
+    } else {
+      out.line1 = parts[0];
+      out.line2 = parts.slice(1).join(', ');
+    }
+    return out;
+  }
+
+  function parseDate(v) {
+    if (v instanceof Date && !isNaN(v)) return v;
+    const s = tidy(v);
+    if (!s) return null;
+    let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+    if (m) {
+      let y = +m[3]; if (y < 100) y += y < 50 ? 2000 : 1900;
+      const d = new Date(y, +m[1] - 1, +m[2]);
+      return isNaN(d) ? null : d;
+    }
+    m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) { const d = new Date(+m[1], +m[2] - 1, +m[3]); return isNaN(d) ? null : d; }
+    const d = new Date(s);
+    return isNaN(d) ? null : d;
+  }
+
+  function parseMoney(v) {
+    if (typeof v === 'number') return v;
+    const s = String(v == null ? '' : v).replace(/[^0-9.]/g, '');
+    if (!s) return null;
+    const n = parseFloat(s);
+    return isNaN(n) ? null : n;
+  }
+
+  function fmtDate(d) {
+    if (!d) return '';
+    const p = n => String(n).padStart(2, '0');
+    return p(d.getMonth() + 1) + '/' + p(d.getDate()) + '/' + d.getFullYear();
+  }
+
+  /* ---------- the build ---------- */
+  const HEADERS = ['Exclude?','Since Sold?','First Name','Last Name','Home Anniversary Date (Buyers)',
+    'Closed Date (Sellers)','Buyer / Seller','Sale Price','Home Address Line 1','Home Address Line 2',
+    'Home Address City','Home Address State','Home Address Zip Code','Phone','Email','Groups','Tags'];
+
+  const BANNER_UNKNOWN = 'The following listings did not provide agent data so both parties are listed for review.';
+  const BANNER_NODATA  = 'The following listings did not provide client data. Please fill in names below.';
+  const NO_NAME = 'Data Not Available';
+
+  // an agent field counts as filled only if it holds something name-shaped;
+  // '2.5%' and other MLS junk do not count
+  function hasAgentName(v) {
+    return tidy(v).replace(/[^A-Za-z]/g, '').length >= 3;
+  }
+
+  function build(mls, contactIndex, opts) {
+    const targets = agentTargets(opts.agent);
+    const main = [], unknown = [], nodata = [];
+    const review = { noAgent: [], truncated: [] };
+    const m = mls.map;
+
+    mls.rows.forEach((r, ri) => {
+      const listing = tidy(r[m.listingAgent]);
+      const selling = tidy(r[m.sellingAgent]);
+      const addrRaw = tidy(r[m.address]);
+      const date = parseDate(r[m.date]);
+      const price = parseMoney(r[m.price]);
+      const addr = parseAddress(addrRaw);
+      const listMatch = targets.length && agentMatches(listing, targets);
+      const sellMatch = targets.length && agentMatches(selling, targets);
+
+      // shared row shape
+      const base = (role, extra) => {
+        const notes = [];
+        let attention = false;
+        if (addr.note) { notes.push(addr.note); attention = true; }
+        if (!date) { notes.push('no date'); attention = true; }
+        const known = role === 'Buyer' || role === 'Seller';
+        return Object.assign({
+          exclude: false, sinceSold: false,
+          first: '', last: '',
+          // side unknown: the one closing date goes in both columns so the
+          // reviewer keeps whichever one applies
+          annivDate: (role === 'Buyer' || !known) ? date : null,
+          closedDate: (role === 'Seller' || !known) ? date : null,
+          role: role,
+          price: price,
+          line1: addr.line1, line2: addr.line2, city: addr.city, state: addr.state, zip: addr.zip,
+          phone: '', email: '',
+          groups: 'Past Clients',
+          tags: known
+            ? (role === 'Buyer' ? 'CRM: Home Anniversary, Buyer' : 'CRM: Closed Date, Seller')
+              + (date ? ', ' + date.getFullYear() : '')
+            : '',
+          matched: false, attention: attention, kind: 'person',
+          notes: notes, source: '', srcLine: ri + 2
+        }, extra || {});
+      };
+
+      // one parsed name -> one row, with the contact lookup applied
+      const personRow = (p, role, sourceCell, bucket) => {
+        if (p.kind === 'entity' && !opts.exportEntities) return;
+        const row = base(role);
+        const found = lookupContact(p, contactIndex);
+        row.first = p.first; row.last = p.last; row.kind = p.kind;
+        row.source = sourceCell;
+        if (found) { row.phone = found.hit.phone; row.email = found.hit.email; row.matched = true; }
+        if (p.kind === 'entity') row.notes.push('trust / company');
+        if (p.truncated || p.stub) { row.notes.push('name may be cut off'); row.attention = true; }
+        if (found && found.count > 1) { row.notes.push(found.count + ' contacts share this name'); row.attention = true; }
+        if (found && !found.hasInfo) { row.notes.push('contact has no phone or email'); row.attention = true; }
+        bucket.push(row);
+      };
+
+      const emit = (cell, role, bucket) => {
+        let n = 0;
+        parseNameCell(cell, opts).forEach(p => {
+          if (p.skip || p.kind === 'fragment') {
+            review.truncated.push({ line: ri + 2, address: addrRaw, role: role, raw: p.raw, source: cell });
+            return;
+          }
+          personRow(p, role, cell, bucket);
+          n++;
+        });
+        return n;
+      };
+
+      // 1. our agent is on the deal -> the other party is the client
+      if (listMatch || sellMatch) {
+        const sides = [];
+        if (sellMatch) sides.push({ role: 'Buyer', cell: tidy(r[m.buyer]) });
+        if (listMatch) sides.push({ role: 'Seller', cell: tidy(r[m.seller]) });
+        const missing = [];
+        sides.forEach(side => {
+          const n = side.cell ? emit(side.cell, side.role, main) : 0;
+          if (!n) missing.push(side.role);
+        });
+        // no usable name on our side of the deal -> one row to fill in by hand
+        if (missing.length) {
+          const role = missing.length > 1 ? 'Unknown' : missing[0];
+          const row = base(role);
+          row.first = NO_NAME; row.noName = true; row.attention = true;
+          row.notes.push('no ' + missing.join(' or ').toLowerCase() + ' name in the MLS');
+          nodata.push(row);
+        }
+        return;
+      }
+
+      // 2. an agent field is empty, so our agent cannot be ruled out ->
+      //    list both parties and let the reviewer decide
+      if (!hasAgentName(listing) || !hasAgentName(selling)) {
+        let n = 0;
+        n += tidy(r[m.buyer]) ? emit(tidy(r[m.buyer]), 'Unknown', unknown) : 0;
+        n += tidy(r[m.seller]) ? emit(tidy(r[m.seller]), 'Unknown', unknown) : 0;
+        if (!n) {
+          const row = base('Unknown');
+          row.first = NO_NAME; row.noName = true; row.attention = true;
+          row.notes.push('no agent and no client names in the MLS');
+          nodata.push(row);
+        }
+        return;
+      }
+
+      // 3. both agents named, neither is ours -> not their deal
+      review.noAgent.push({ line: ri + 2, address: addrRaw, listing, selling });
+    });
+
+    const byDate = (a, b) => {
+      const da = a.annivDate || a.closedDate, db = b.annivDate || b.closedDate;
+      const ta = da ? da.getTime() : Infinity, tb = db ? db.getTime() : Infinity;
+      if (ta !== tb) return ta - tb;
+      return (a.last + a.first).localeCompare(b.last + b.first);
+    };
+    main.sort(byDate); unknown.sort(byDate); nodata.sort(byDate);
+
+    const sections = [{ id: 'main', rows: main }];
+    if (unknown.length) sections.push({ id: 'unknown', banner: BANNER_UNKNOWN, rows: unknown });
+    if (nodata.length) sections.push({ id: 'nodata', banner: BANNER_NODATA, rows: nodata });
+
+    return { sections, main, unknown, nodata,
+             rows: main.concat(unknown, nodata), review, headers: HEADERS };
+  }
+
+  function rowToArray(r) {
+    return [
+      r.exclude ? 'TRUE' : 'FALSE', r.sinceSold ? 'TRUE' : 'FALSE',
+      r.first, r.last,
+      fmtDate(r.annivDate), fmtDate(r.closedDate),
+      r.role, r.price == null ? '' : r.price,
+      r.line1, r.line2, r.city, r.state, r.zip,
+      r.phone, r.email, r.groups, r.tags
+    ];
+  }
+
+  return { parseCSV, parseNameCell, parsePerson, looksLikeEntity, agentMatches, agentTargets,
+           buildContactIndex, lookupContact, parseAddress, parseDate, parseMoney, fmtDate,
+           build, rowToArray, titleCase, key, HEADERS, pickColumns, hasAgentName,
+           BANNER_UNKNOWN, BANNER_NODATA, NO_NAME };
+})();
+/* ============================= CORE LOGIC END ============================= */
+
+/* ------------------------------- UI ---------------------------------------- */
+(function () {
+  if (typeof document === 'undefined') return;
+
+  const $ = id => document.getElementById(id);
+  const state = { contacts: null, mls: null, result: null, filter: 'all' };
+
+  // library availability
+  const hasSheetJS = typeof XLSX !== 'undefined';
+  const hasExcelJS = typeof ExcelJS !== 'undefined';
+  $('libnote').innerHTML = hasExcelJS
+    ? 'Runs entirely in this browser. Nothing is uploaded.'
+    : '<b>Offline:</b> .xlsx export needs an internet connection the first time. CSV and clipboard still work.';
+
+  /* ---- file reading ---- */
+  function readFile(file) {
+    return new Promise((resolve, reject) => {
+      const isSheet = /\.xlsx?$/i.test(file.name);
+      const fr = new FileReader();
+      fr.onerror = () => reject(new Error('Could not read ' + file.name));
+      fr.onload = () => {
+        try {
+          if (isSheet) {
+            if (!hasSheetJS) return reject(new Error('Spreadsheet reader unavailable offline — save the file as CSV.'));
+            const wb = XLSX.read(fr.result, { type: 'array', cellDates: true });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+            resolve(aoa.filter(r => r.some(v => String(v).trim() !== '')));
+          } else {
+            resolve(CORE.parseCSV(fr.result));
+          }
+        } catch (e) { reject(e); }
+      };
+      isSheet ? fr.readAsArrayBuffer(file) : fr.readAsText(file);
+    });
+  }
+
+  // header row may sit below a banner row (the template has one)
+  function splitHeader(aoa) {
+    let hi = 0, best = -1;
+    for (let i = 0; i < Math.min(5, aoa.length); i++) {
+      const filled = aoa[i].filter(v => String(v).trim() !== '').length;
+      if (filled > best) { best = filled; hi = i; }
+    }
+    return { headers: aoa[hi].map(h => String(h).trim()), rows: aoa.slice(hi + 1) };
+  }
+
+  /* ---- column auto-detection ---- */
+  const MLS_FIELDS = [
+    ['address', 'Address', [/^address$/i, /property\s*address/i, /^full\s*address/i, /address/i]],
+    ['date', 'Close / anniversary date', [/home\s*anniversary/i, /clos(e|ing|ed)\s*date/i, /sold\s*date/i, /^date$/i, /date/i]],
+    ['price', 'Sale price', [/sold\s*price/i, /sale\s*price/i, /clos(e|ing)\s*price/i, /price/i]],
+    ['listingAgent', 'Listing agent', [/listing\s*agent/i, /list\s*agent/i, /seller.*agent/i]],
+    ['sellingAgent', 'Selling agent', [/selling\s*agent/i, /sell\s*agent/i, /buyer.*agent/i, /co.?op.*agent/i]],
+    ['buyer', 'Buyer name', [/buyer\s*name/i, /^buyer/i]],
+    ['seller', 'Seller name', [/seller\s*name/i, /^seller/i]]
+  ];
+  const CONTACT_FIELDS = [
+    ['first', 'First name', [/^first\s*name$/i, /^given/i, /first/i]],
+    ['last', 'Last name', [/^last\s*name$/i, /^surname/i, /last/i]]
+  ];
+
+  function autoMap(headers, fields) {
+    const map = {}, used = new Set();
+    fields.forEach(([k, , pats]) => {
+      for (const re of pats) {
+        const i = headers.findIndex((h, idx) => !used.has(idx) && re.test(h));
+        if (i > -1) { map[k] = i; used.add(i); break; }
+      }
+      if (map[k] === undefined) map[k] = -1;
+    });
+    return map;
+  }
+
+  function renderMaps() {
+    const g = $('mapgrid');
+    g.innerHTML = '';
+    const block = (title, data, fields) => {
+      const h = document.createElement('div');
+      h.style.gridColumn = '1 / -1';
+      h.style.font = '600 13px system-ui';
+      h.style.margin = '4px 0 -4px';
+      h.textContent = title;
+      g.appendChild(h);
+      fields.forEach(([k, label]) => {
+        const d = document.createElement('div');
+        const sel = document.createElement('select');
+        sel.innerHTML = '<option value="-1">— none —</option>' +
+          data.headers.map((hh, i) => `<option value="${i}">${hh || 'Column ' + (i + 1)}</option>`).join('');
+        sel.value = String(data.map[k]);
+        sel.onchange = () => { data.map[k] = +sel.value; checkReady(); };
+        d.innerHTML = `<label>${label}</label>`;
+        d.appendChild(sel);
+        g.appendChild(d);
+      });
+    };
+    if (state.contacts) block('Contacts file', state.contacts, CONTACT_FIELDS);
+    if (state.mls) block('MLS file', state.mls, MLS_FIELDS);
+    $('maps').hidden = !(state.contacts || state.mls);
+  }
+
+  /* ---- wiring the two inputs ---- */
+  function wireDrop(dropId, inputId, infoId, kind) {
+    const drop = $(dropId), input = $(inputId), info = $(infoId);
+    ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => {
+      e.preventDefault(); drop.classList.add('over');
+    }));
+    ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => {
+      e.preventDefault(); drop.classList.remove('over');
+    }));
+    drop.addEventListener('drop', e => {
+      const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) load(f);
+    });
+    input.addEventListener('change', () => { if (input.files[0]) load(input.files[0]); });
+
+    async function load(file) {
+      info.textContent = 'Reading ' + file.name + '…';
+      try {
+        const aoa = await readFile(file);
+        const { headers, rows } = splitHeader(aoa);
+        const map = autoMap(headers, kind === 'mls' ? MLS_FIELDS : CONTACT_FIELDS);
+        state[kind] = { name: file.name, headers, rows, map };
+        info.innerHTML = `<b>${file.name}</b> — ${rows.length.toLocaleString()} rows, ${headers.length} columns`;
+        drop.classList.add('ready');
+        if (kind === 'mls') fillAgentList();
+        renderMaps();
+        checkReady();
+      } catch (e) {
+        info.textContent = e.message;
+        drop.classList.remove('ready');
+      }
+    }
+  }
+  wireDrop('drop-contacts', 'file-contacts', 'info-contacts', 'contacts');
+  wireDrop('drop-mls', 'file-mls', 'info-mls', 'mls');
+
+  function fillAgentList() {
+    const m = state.mls.map, counts = new Map();
+    state.mls.rows.forEach(r => {
+      [r[m.listingAgent], r[m.sellingAgent]].forEach(v => {
+        const s = String(v == null ? '' : v).trim();
+        if (!s || /%/.test(s) || s.length < 4) return;
+        counts.set(s, (counts.get(s) || 0) + 1);
+      });
+    });
+    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    $('agentlist').innerHTML = sorted.map(([n, c]) => `<option value="${n}">${n} — ${c} deals</option>`).join('');
+    if (!$('agent').value && sorted.length && sorted[0][1] >= 3) {
+      $('agent').value = sorted[0][0];
+      checkAgent();
+    }
+  }
+
+  function opts() {
+    return {
+      agent: $('agent').value,
+      splitPipe: $('o-pipe').checked,
+      splitAmp: $('o-amp').checked,
+      inheritLast: $('o-inherit').checked,
+      dropMiddles: $('o-mid').checked,
+      keepEntitiesWhole: $('o-entity').checked,
+      skipTruncated: $('o-trunc').checked,
+      fixCase: $('o-case').checked,
+      exportEntities: $('o-keepentity').checked
+    };
+  }
+
+  function checkAgent() {
+    const t = CORE.agentTargets($('agent').value);
+    const w = $('agentwarn');
+    if (t.some(x => x.partial)) {
+      w.textContent = 'Type the first and last name. Matching is exact, so a surname on its own matches nothing.';
+      w.classList.add('on');
+    } else w.classList.remove('on');
+  }
+
+  function checkReady() {
+    const c = state.contacts, m = state.mls;
+    const ok = !!(m && m.map.listingAgent > -1 && m.map.sellingAgent > -1 &&
+      m.map.buyer > -1 && m.map.seller > -1 && $('agent').value.trim());
+    $('run').disabled = !ok;
+    let msg = '';
+    if (!m) msg = 'Load the MLS transaction file.';
+    else if (m.map.buyer < 0 || m.map.seller < 0 || m.map.listingAgent < 0 || m.map.sellingAgent < 0)
+      msg = 'Set the agent and name columns in the column mapping.';
+    else if (!$('agent').value.trim()) msg = 'Enter the agent name.';
+    else if (!c) msg = 'Ready — but with no contacts file, nothing will be highlighted or filled in.';
+    else msg = 'Ready.';
+    $('runmsg').textContent = msg;
+  }
+  $('agent').addEventListener('input', () => { checkAgent(); checkReady(); });
+  ['o-pipe','o-amp','o-inherit','o-mid','o-entity','o-trunc','o-case','o-keepentity']
+    .forEach(id => $(id).addEventListener('change', () => { if (state.result) run(); }));
+  checkReady();
+
+  /* ---- run ---- */
+  function run() {
+    const o = opts();
+    let index = null;
+    if (state.contacts && state.contacts.map.first > -1) {
+      index = CORE.buildContactIndex(state.contacts.headers, state.contacts.rows, {
+        first: state.contacts.map.first,
+        last: state.contacts.map.last
+      });
+    }
+    state.result = CORE.build(state.mls, index, o);
+    state.result.index = index;
+    render();
+  }
+  $('run').addEventListener('click', run);
+
+  /* ---- render ---- */
+  function render() {
+    const { sections, main, unknown, nodata, review } = state.result;
+    $('noresults').hidden = true;
+    $('results').hidden = false;
+
+    const matched = main.filter(r => r.matched).length;
+    const stats = [
+      ['rows in the log', state.result.rows.length, false],
+      ['with a contact match', matched, true],
+      ['no agent data — both parties listed', unknown.length, false],
+      ['no client data — fill in by hand', nodata.length, false],
+      ['deals skipped, another agent', review.noAgent.length, false],
+      ['names cut off by the MLS', review.truncated.length, false]
+    ];
+    $('stats').innerHTML = stats.map(([l, v, g]) =>
+      `<div class="stat${g ? ' green' : ''}"><b>${v.toLocaleString()}</b><span>${l}</span></div>`).join('');
+
+    const all = state.result.rows;
+    const counts = {
+      all: all.length,
+      matched: matched,
+      unmatched: main.length - matched,
+      flagged: all.filter(r => r.attention).length,
+      unknown: unknown.length,
+      nodata: nodata.length
+    };
+    $('chips').innerHTML = [
+      ['all', 'All rows'], ['matched', 'Contact found'], ['unmatched', 'No contact'],
+      ['flagged', 'Needs an eyeball'], ['unknown', 'No agent data'], ['nodata', 'No client data']
+    ].map(([k, l]) => `<button class="chip" data-f="${k}" aria-pressed="${state.filter === k}">${l} (${counts[k]})</button>`).join('');
+    $('chips').querySelectorAll('.chip').forEach(b => b.onclick = () => { state.filter = b.dataset.f; render(); });
+
+    const keep = (r, sec) =>
+      state.filter === 'all' ? true :
+      state.filter === 'matched' ? r.matched :
+      state.filter === 'unmatched' ? (sec === 'main' && !r.matched) :
+      state.filter === 'flagged' ? r.attention :
+      state.filter === 'unknown' ? sec === 'unknown' : sec === 'nodata';
+
+    const t = $('out');
+    const cols = CORE.HEADERS.length + 2;
+    t.tHead.innerHTML = '<tr>' + CORE.HEADERS.map(h => `<th>${h}</th>`).join('') +
+      '<th>Notes (not exported)</th><th>MLS name field</th></tr>';
+
+    let html = '', shownAny = false;
+    sections.forEach(sec => {
+      const rows = sec.rows.filter(r => keep(r, sec.id));
+      if (!rows.length) return;
+      shownAny = true;
+      if (sec.banner) html += `<tr class="banner sec-${sec.id}"><td colspan="${cols}">${esc(sec.banner)}</td></tr>`;
+      html += rows.map(r => {
+        const cls = sec.id === 'main' ? (r.matched ? 'matched' : '') : 'sec-' + sec.id;
+        const cells = CORE.rowToArray(r).map((v, i) => {
+          if (i === 7 && v !== '') v = '$' + Number(v).toLocaleString();
+          return `<td${i === 2 && r.noName ? ' class="noname"' : ''}>${esc(v)}</td>`;
+        }).join('');
+        return `<tr class="${cls} ${r.attention ? 'flagged' : ''}">${cells}` +
+          `<td class="note">${esc(r.notes.join('; '))}</td><td class="raw">${esc(r.source)}</td></tr>`;
+      }).join('');
+    });
+    t.tBodies[0].innerHTML = html || `<tr><td colspan="${cols}" class="empty">No rows in this view.</td></tr>`;
+    if (!shownAny) { /* keep the empty message */ }
+
+    const groups = [
+      ['Deals skipped — both agents named, neither is yours', review.noAgent,
+        r => `line ${r.line} · ${r.address || 'no address'} — listing: ${r.listing || '(blank)'} / selling: ${r.selling || '(blank)'}`],
+      ['Names cut off at 50 characters — skipped', review.truncated,
+        r => `line ${r.line} · ${r.role}: "${r.raw}" from "${r.source}"`]
+    ];
+    $('review').innerHTML = '<h3>Left out of the log</h3>' + groups.map(([title, list, fmt]) => list.length ? `
+      <details class="rgroup"><summary><b>${list.length}</b> — ${title}</summary>
+      <div class="rlist">${list.slice(0, 400).map(r => `<div>${esc(fmt(r))}</div>`).join('')}
+      ${list.length > 400 ? '<div>…</div>' : ''}</div></details>` : '').join('') ||
+      '<h3>Left out of the log</h3><p class="msg">Nothing was left out.</p>';
+
+    $('exphint').textContent = state.result.rows.length + ' rows ready';
+    $('dl-xlsx').disabled = !hasExcelJS;
+    $('expmsg').textContent = hasExcelJS ? '' : '.xlsx needs an internet connection — use CSV or the clipboard.';
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  }
+
+  /* ---- exports ---- */
+  const BANNER_TEXT = 'PLEASE SEE OUR GUIDE BEFORE STARTING YOUR REVIEW: ';
+  const BANNER_URL = 'https://crmrefresh.org/guide-past-client-log';
+  const WIDTHS = [10, 12, 17.5, 16, 27.6, 18.4, 13, 13, 22.3, 19.5, 18.5, 17.8, 21.1, 15, 24, 13, 38.5];
+
+  function sheetName() {
+    const a = ($('agent').value.split(/[\n;]/)[0] || 'Agent').trim();
+    return (a + ' - Past Clients').slice(0, 31);
+  }
+
+  const FILL = { match: 'FFDBFFDA', unknown: 'FFFFF3B0', nodata: 'FFFFD6A5' };
+  const FONT = { name: 'Arial', size: 10 };
+  const BANNER_FILL = 'FFD3FFFF';
+
+  $('dl-xlsx').addEventListener('click', async () => {
+    if (!hasExcelJS || !state.result) return;
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Past Client Log Generator';
+    const ws = wb.addWorksheet(sheetName(), {
+      views: [{ state: 'frozen', ySplit: 2, showGridLines: true }]
+    });
+    const NC = CORE.HEADERS.length;
+
+    ws.mergeCells(1, 1, 1, NC);
+    const b = ws.getCell('A1');
+    // clickable across the whole cell, but only the URL run carries the underline
+    b.value = {
+      hyperlink: BANNER_URL,
+      text: { richText: [
+        { text: BANNER_TEXT, font: Object.assign({}, FONT, { bold: true, color: { argb: 'FF1B2A38' } }) },
+        { text: BANNER_URL,  font: Object.assign({}, FONT, { bold: true, underline: true, color: { argb: 'FF1155CC' } }) }
+      ] }
+    };
+    b.alignment = { horizontal: 'left', vertical: 'middle' };
+    for (let ci = 1; ci <= NC; ci++) {
+      ws.getCell(1, ci).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BANNER_FILL } };
+    }
+    ws.getRow(1).height = 20;
+
+    const hr = ws.getRow(2);
+    CORE.HEADERS.forEach((h, i) => {
+      const c = hr.getCell(i + 1);
+      c.value = h;
+      c.font = Object.assign({}, FONT, { bold: true });
+      c.alignment = { vertical: 'middle', wrapText: true };
+      c.border = { bottom: { style: 'thin', color: { argb: 'FFBFBFBF' } } };
+    });
+    hr.height = 30;
+    WIDTHS.forEach((w, i) => ws.getColumn(i + 1).width = w);
+
+    let n = 3;
+    state.result.sections.forEach((sec, si) => {
+      if (!sec.rows.length) return;
+      const fill = sec.id === 'main' ? null : FILL[sec.id];
+
+      if (si > 0) n++;                       // one blank white row between sections
+
+      if (sec.banner) {
+        ws.mergeCells(n, 1, n, NC);
+        const bc = ws.getCell(n, 1);
+        bc.value = sec.banner;
+        bc.font = Object.assign({}, FONT, { bold: true });
+        bc.alignment = { horizontal: 'left', vertical: 'middle' };
+        for (let ci = 1; ci <= NC; ci++) {
+          const hc = ws.getCell(n, ci);
+          hc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+          // 'medium' is the closest stock weight to 1.5pt
+          hc.border = { top: { style: 'medium' }, bottom: { style: 'medium' } };
+        }
+        ws.getRow(n).height = 20;
+        n++;
+      }
+
+      sec.rows.forEach(r => {
+        const row = ws.getRow(n++);
+        const vals = [
+          r.exclude, r.sinceSold, r.first, r.last, r.annivDate, r.closedDate, r.role,
+          r.price == null ? null : r.price, r.line1, r.line2, r.city, r.state,
+          /^\d{5}$/.test(r.zip) ? Number(r.zip) : r.zip,
+          r.phone, r.email, r.groups, r.tags
+        ];
+        vals.forEach((v, ci) => {
+          const c = row.getCell(ci + 1);
+          c.value = v === '' ? null : v;
+          if (ci === 4 || ci === 5) c.numFmt = 'mm/dd/yyyy';
+          if (ci === 7) c.numFmt = '"$"#,##0';
+          if (ci === 0 || ci === 1) c.alignment = { horizontal: 'center' };
+          c.font = Object.assign({}, FONT, (ci === 2 && r.noName) ? { italic: true } : {});
+          const bg = fill || (r.matched ? FILL.match : null);
+          if (bg) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+        });
+      });
+    });
+
+    ws.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2, column: NC } };
+
+    const buf = await wb.xlsx.writeBuffer();
+    save(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+      fileStem() + '.xlsx');
+    $('expmsg').textContent = 'Downloaded. Drop it into Drive and open with Sheets — the colours and merged headings come with it.';
+  });
+
+  $('dl-csv').addEventListener('click', () => {
+    if (!state.result) return;
+    const q = v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
+    const lines = [CORE.HEADERS.map(q).join(',')];
+    state.result.sections.forEach(sec => {
+      if (!sec.rows.length) return;
+      if (sec.banner) lines.push(q(sec.banner));
+      sec.rows.forEach(r => lines.push(CORE.rowToArray(r).map(q).join(',')));
+    });
+    save(new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }), fileStem() + '.csv');
+    $('expmsg').textContent = 'CSV downloaded — no highlighting in this format.';
+  });
+
+  $('cp-body').addEventListener('click', async () => {
+    if (!state.result) return;
+    const lines = [];
+    state.result.sections.forEach(sec => {
+      if (!sec.rows.length) return;
+      if (sec.banner) lines.push(sec.banner);              // lands in column C
+      sec.rows.forEach(r => lines.push(CORE.rowToArray(r).slice(2).join('\t')));
+    });
+    const tsv = lines.join('\n');
+    try {
+      await navigator.clipboard.writeText(tsv);
+      $('expmsg').textContent = state.result.rows.length + ' rows copied — paste into cell C3. Pasted headings sit in column C; merge and colour them by hand, or use the .xlsx.';
+    } catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = tsv; document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); ta.remove();
+      $('expmsg').textContent = state.result.rows.length + ' rows copied — paste into cell C3.';
+    }
+  });
+
+  $('cp-rule').addEventListener('click', async () => {
+    const rule = '=OR($N3<>"",$O3<>"")';
+    try { await navigator.clipboard.writeText(rule); }
+    catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = rule; document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); ta.remove();
+    }
+    $('cp-rule').textContent = 'Rule copied';
+    setTimeout(() => $('cp-rule').textContent = 'Copy the rule', 2200);
+  });
+
+  function fileStem() {
+    const a = ($('agent').value.split(/[\n;]/)[0] || 'agent').trim().replace(/[^\w]+/g, '-');
+    return a + '-past-client-log';
+  }
+  function save(blob, name) {
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = u; a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(u), 4000);
+  }
+})();
+</script>
+</body>
+</html>
